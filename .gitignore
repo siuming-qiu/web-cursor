@@ -13,3 +13,10 @@ node_modules/
 out/
 build/
 .vercel
+next-env.d.ts
+
+# 构建产物：copy-wasm 在 predev/prebuild 自动从 node_modules 复制
+public/esbuild.wasm
+
+# ts 构建缓存
+tsconfig.tsbuildinfo
