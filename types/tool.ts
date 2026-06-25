@@ -1,6 +1,10 @@
 export const ToolName = {
-  WriteApp: "write_app",
   Reply: "reply",
+  ListFiles: "list_files",
+  ReadFile: "read_file",
+  WriteFile: "write_file",
+  DeleteFile: "delete_file",
+  RenameFile: "rename_file",
 } as const;
 
 export type ToolName = typeof ToolName[keyof typeof ToolName];

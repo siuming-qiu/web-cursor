@@ -34,3 +34,19 @@ export async function ownsConversation(conversationId: string, ownerId: string):
     .limit(1);
   return !!row;
 }
+
+/** conversation -> projectId，同时校验 owner 和软删状态。 */
+export async function getOwnedConversationProjectId(conversationId: string, ownerId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ projectId: conversations.projectId })
+    .from(conversations)
+    .innerJoin(projects, eq(conversations.projectId, projects.id))
+    .where(and(
+      eq(conversations.id, conversationId),
+      isNull(conversations.deletedAt),
+      eq(projects.ownerId, ownerId),
+      isNull(projects.deletedAt),
+    ))
+    .limit(1);
+  return row?.projectId ?? null;
+}

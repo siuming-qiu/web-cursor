@@ -59,6 +59,17 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 - 好品味:消除特殊情况,函数 < 50 行、嵌套 < 3 层,简单可用胜过聪明复杂。
 - 向后兼容:不破坏已跑通的闭环。
 
+## API 方法约定
+
+- 项目内 Route Handler 只写 `GET` / `POST`。
+- 不新增 `PUT` / `PATCH` / `DELETE` 请求；写入、删除、重命名等变更动作统一走 `POST`，用明确的 body 字段表达动作。
+- body 字段必须有明确 schema 校验；未知 action 或未知字段直接返回 400，不做兜底猜测。
+
+## 枚举值约定
+
+- 代码里不要散落裸字符串枚举值；错误码、事件类型、工具名、action、status 等有限集合必须先定义 `as const` 常量，再从常量推导类型。
+- schema 里的 `z.literal(...)`、条件判断、返回值都引用同一份常量；不要在多处手写同一个枚举字符串。
+
 ## Git 铁律
 
 - **未经显式授权,绝不 `git commit` / `git push`**。改完只汇报,等"提交/推送"指令。

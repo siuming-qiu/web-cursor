@@ -7,10 +7,11 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/server/db";
 import { conversations, projects } from "@/server/db/schema";
+import { listProjectFiles } from "@/server/files";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// 项目详情 + 它的会话线索（不返 files，本期无 project_files）
+// 项目详情 + 会话线索 + 文件列表（文件内容按需另取）
 export async function GET(req: Request, ctx: Ctx) {
   const ownerId = req.headers.get("x-owner-id");
   if (!ownerId) return new Response("Unauthorized", { status: 401 });
@@ -25,7 +26,9 @@ export async function GET(req: Request, ctx: Ctx) {
     .where(and(eq(conversations.projectId, id), isNull(conversations.deletedAt)))
     .orderBy(asc(conversations.createdAt));
 
-  return Response.json({ ...project, conversations: convs });
+  const files = await listProjectFiles(id);
+
+  return Response.json({ ...project, conversations: convs, files });
 }
 
 // 更新项目：{ title } 改名；{ deleted: true } 软删。owner 进 where，改不到即 404。

@@ -30,8 +30,7 @@ export function toLLMMessages(rows: DbMessage[]): LLMMessage[] {
           tool_calls: meta.toolCalls.map((t) => ({
             id: t.id,
             type: "function" as const,
-            // arguments 已存就直接用；老数据没存才从 content 反拼（仅 write_app 适用）
-            function: { name: t.name, arguments: t.arguments ?? JSON.stringify({ code: m.content }) },
+            function: { name: t.name, arguments: t.arguments ?? "{}" },
           })),
         }];
       }

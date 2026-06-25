@@ -1,25 +1,29 @@
 /**
  * [INPUT]: kind=user 的用户消息，或 kind=resume 的已闭合 transcript 续写请求
- * [OUTPUT]: SSE(init/tools_call/code/chat/done/error)，并落库 assistant 全量回复
- * [POS]: A 域 LLM 代理 —— 持 key、读 DB transcript、流式转发 DeepSeek
- * [PROTOCOL]: tool result 不在这里落库；前端先调用 tool-results 闭合 tool_call，再用 resume 触发修复续写。
+ * [OUTPUT]: SSE(init/tools_call/tool_result/files_changed/chat/done/error)，并落库完整 transcript
+ * [POS]: A 域 LLM Agent loop —— 持 key、读 DB transcript、执行后端文件工具、流式转发
+ * [PROTOCOL]: LLM 工具由 server/tools/definitions.ts 定义，由 server/tools/executor.ts 执行；
+ *   文件当前态只在 project_files，不再从 assistant message 恢复代码。
  */
-import { parse, Allow } from "partial-json";
 import { toLLMMessages } from "@/server/context";
 import { db } from "@/server/db";
 import { conversations, projects } from "@/server/db/schema";
 import deepseekClient, { SYSTEM_PROMPT, tools } from "@/server/deepseek";
+import { getOwnedConversationProjectId, ownsConversation, ownsProject } from "@/server/guard";
 import { appendMessage, listMessages } from "@/server/messages";
-import { ownsConversation, ownsProject } from "@/server/guard";
 import { closeInterruptedToolCall } from "@/server/toolCalls";
 import { updateGeneratedTitles } from "@/server/titles";
-import { ChatTurnSchema, type ChatEvent, type ChatTurn } from "@/types/chat";
-import { ToolName } from "@/types/tool";
+import { executeToolCall, type ToolExecutionContext } from "@/server/tools/executor";
+import { ChatEventType, ChatTurnSchema, type ChatEvent, type ChatTurn } from "@/types/chat";
+import { ToolName, type ToolCallMeta } from "@/types/tool";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type DbMessage = Awaited<ReturnType<typeof listMessages>>[number];
+
+const MAX_TOOL_ROUNDS = 8;
+const MODEL = "deepseek-v4-pro";
 
 function sseResponse(stream: ReadableStream<Uint8Array>) {
   return new Response(stream, {
@@ -30,107 +34,188 @@ function sseResponse(stream: ReadableStream<Uint8Array>) {
   });
 }
 
-async function streamAssistant(
-  conversationId: string,
-  projectId: string | undefined,
-  created: boolean,
-  rows: DbMessage[],
-  userMessage?: string,
-) {
-  const stream = await deepseekClient.chat.completions.create({
-    messages: [{ role: "system", content: SYSTEM_PROMPT }, ...toLLMMessages(rows)],
-    model: "deepseek-v4-pro",
+function assistantMessages(rows: DbMessage[]) {
+  return [{ role: "system" as const, content: SYSTEM_PROMPT }, ...toLLMMessages(rows)];
+}
+
+async function requestAssistant(rows: DbMessage[]) {
+  return deepseekClient.chat.completions.create({
+    messages: assistantMessages(rows),
+    model: MODEL,
     tools,
     stream: true,
   });
+}
+
+async function collectAssistantTurn(
+  rows: DbMessage[],
+  send: (event: ChatEvent) => void,
+): Promise<{ text: string; toolCalls: ToolCallMeta[] }> {
+  const stream = await requestAssistant(rows);
+  const toolCalls = new Map<number, ToolCallMeta>();
+  let text = "";
+
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta;
+    if (delta?.content) {
+      text += delta.content;
+      send({ type: ChatEventType.Chat, delta: delta.content });
+    }
+
+    for (const tc of delta?.tool_calls ?? []) {
+      const index = tc.index ?? 0;
+      const existing = toolCalls.get(index) ?? { id: "", name: "", arguments: "" };
+      const next: ToolCallMeta = {
+        id: tc.id ?? existing.id,
+        name: tc.function?.name ?? existing.name,
+        arguments: (existing.arguments ?? "") + (tc.function?.arguments ?? ""),
+      };
+      toolCalls.set(index, next);
+
+      if (tc.id) {
+        send({
+          type: ChatEventType.ToolsCall,
+          index,
+          id: tc.id,
+          name: tc.function?.name ?? "",
+        });
+      }
+    }
+  }
+
+  return {
+    text,
+    toolCalls: [...toolCalls.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([, call]) => call)
+      .filter((call) => call.id && call.name),
+  };
+}
+
+const FILE_MUTATION_TOOLS = [
+  ToolName.WriteFile,
+  ToolName.DeleteFile,
+  ToolName.RenameFile,
+] as const;
+
+function toolChangesFiles(name: string) {
+  return FILE_MUTATION_TOOLS.includes(name as (typeof FILE_MUTATION_TOOLS)[number]);
+}
+
+async function runAgentLoop({
+  ownerId,
+  conversationId,
+  projectId,
+  created,
+  userMessage,
+  send,
+}: {
+  ownerId: string;
+  conversationId: string;
+  projectId: string;
+  created: boolean;
+  userMessage?: string;
+  send: (event: ChatEvent) => void;
+}) {
+  if (created) send({ type: ChatEventType.Init, conversationId, projectId });
+
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    let rows = await listMessages(conversationId);
+    if (await closeInterruptedToolCall(conversationId, rows)) {
+      rows = await listMessages(conversationId);
+    }
+
+    const assistant = await collectAssistantTurn(rows, send);
+
+    if (assistant.toolCalls.length === 0) {
+      if (assistant.text) {
+        await appendMessage(conversationId, {
+          role: "assistant",
+          content: assistant.text,
+          model: MODEL,
+          meta: { kind: "reply" },
+        });
+        if (userMessage) {
+          try {
+            const titleUpdate = await updateGeneratedTitles({
+              conversationId,
+              projectId,
+              userMessage,
+              assistantContent: assistant.text,
+            });
+            if (titleUpdate) send({ type: ChatEventType.Title, conversationId, ...titleUpdate });
+          } catch (titleError) {
+            console.warn("Failed to generate chat title", titleError);
+          }
+        }
+      }
+      send({ type: ChatEventType.Done });
+      return;
+    }
+
+    await appendMessage(conversationId, {
+      role: "assistant",
+      content: assistant.text,
+      model: MODEL,
+      meta: { toolCalls: assistant.toolCalls },
+    });
+
+    const ctx: ToolExecutionContext = {
+      ownerId,
+      projectId,
+      conversationId,
+    };
+
+    for (const toolCall of assistant.toolCalls) {
+      const result = await executeToolCall(toolCall, ctx);
+      await appendMessage(conversationId, {
+        role: "tool",
+        content: JSON.stringify(result),
+        meta: { toolCallId: toolCall.id },
+      });
+
+      send({ type: ChatEventType.ToolResult, name: toolCall.name, status: result.status });
+
+      if (toolChangesFiles(toolCall.name)) {
+        send({ type: ChatEventType.FilesChanged });
+      }
+
+      if (result.status === "ok" && result.tool === ToolName.Reply) {
+        send({ type: ChatEventType.Chat, delta: result.message });
+        await appendMessage(conversationId, {
+          role: "assistant",
+          content: result.message,
+          model: MODEL,
+          meta: { kind: "reply" },
+        });
+        send({ type: ChatEventType.Done });
+        return;
+      }
+    }
+  }
+
+  send({ type: ChatEventType.Error, message: `工具调用超过上限 ${MAX_TOOL_ROUNDS} 轮，已停止。` });
+}
+
+function streamAgent(args: {
+  conversationId: string;
+  projectId: string;
+  ownerId: string;
+  created: boolean;
+  userMessage?: string;
+}) {
   const encoder = new TextEncoder();
 
   return sseResponse(new ReadableStream({
     async start(controller) {
-      const send = (o: ChatEvent) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(o)}\n\n`));
+      const send = (event: ChatEvent) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       };
 
-      let name = "";
-      let args = "";
-      let finalCode = "";
-      let sentCode = 0;
-      let finalReply = "";
-      let sentReply = 0;
-      let text = "";
-      let toolCallId = "";
-
-      if (created && projectId) {
-        send({ type: "init", conversationId, projectId });
-      }
-
       try {
-        for await (const chunk of stream) {
-          const d = chunk.choices[0]?.delta;
-          const tc = d?.tool_calls?.[0];
-
-          if (tc?.id) {
-            toolCallId = tc.id;
-            send({
-              type: "tools_call",
-              index: tc.index ?? 0,
-              id: tc.id,
-              name: tc.function?.name ?? "",
-            });
-          }
-
-          if (tc?.function?.name) name = tc.function.name;
-          if (tc?.function?.arguments) {
-            args += tc.function.arguments;
-            if (name === ToolName.WriteApp) {
-              const code = parse(args, Allow.STR | Allow.OBJ)?.code ?? "";
-              if (code.length > sentCode) {
-                send({ type: "code", delta: code.slice(sentCode) });
-                sentCode = code.length;
-              }
-              finalCode = code;
-            } else if (name === ToolName.Reply) {
-              const reply = parse(args, Allow.STR | Allow.OBJ)?.message ?? "";
-              if (reply.length > sentReply) {
-                send({ type: "chat", delta: reply.slice(sentReply) });
-                sentReply = reply.length;
-              }
-              finalReply = reply;
-            }
-          }
-
-          if (d?.content) {
-            text += d.content;
-            send({ type: "chat", delta: d.content });
-          }
-        }
-
-        const content = finalCode || finalReply || text;
-        if (content) {
-          await appendMessage(conversationId, {
-            role: "assistant",
-            content,
-            model: "deepseek-v4-pro",
-            meta: {
-              kind: finalCode ? "code" : "reply",
-              ...(toolCallId ? {
-                toolCalls: [{ id: toolCallId, name: name || ToolName.WriteApp, arguments: args }],
-              } : {}),
-            },
-          });
-          if (userMessage) {
-            try {
-              // 标题依赖 assistant 的完整产出；失败时保持 untitled，不影响主对话闭环。
-              const titleUpdate = await updateGeneratedTitles({ conversationId, projectId, userMessage, assistantContent: content });
-              if (titleUpdate) send({ type: "title", conversationId, ...titleUpdate });
-            } catch (titleError) {
-              console.warn("Failed to generate chat title", titleError);
-            }
-          }
-        }
-        send({ type: "done" });
-      } catch (e) {
-        send({ type: "error", message: String(e) });
+        await runAgentLoop({ ...args, send });
+      } catch (error) {
+        send({ type: ChatEventType.Error, message: error instanceof Error ? error.message : String(error) });
       } finally {
         controller.close();
       }
@@ -150,11 +235,9 @@ export async function POST(req: Request) {
   }
 
   if (body.kind === "resume") {
-    if (!(await ownsConversation(body.conversationId, ownerId))) {
-      return new Response("Not Found", { status: 404 });
-    }
-    const rows = await listMessages(body.conversationId);
-    return streamAssistant(body.conversationId, undefined, false, rows);
+    const projectId = await getOwnedConversationProjectId(body.conversationId, ownerId);
+    if (!projectId) return new Response("Not Found", { status: 404 });
+    return streamAgent({ conversationId: body.conversationId, projectId, ownerId, created: false });
   }
 
   let { conversationId, projectId } = body;
@@ -164,10 +247,9 @@ export async function POST(req: Request) {
     if (!(await ownsConversation(conversationId, ownerId))) {
       return new Response("Not Found", { status: 404 });
     }
-    let rows = await listMessages(conversationId);
-    if (await closeInterruptedToolCall(conversationId, rows)) {
-      rows = await listMessages(conversationId);
-    }
+    const ownedProjectId = await getOwnedConversationProjectId(conversationId, ownerId);
+    if (!ownedProjectId) return new Response("Not Found", { status: 404 });
+    projectId = ownedProjectId;
   } else {
     if (projectId) {
       if (!(await ownsProject(projectId, ownerId))) {
@@ -186,6 +268,5 @@ export async function POST(req: Request) {
     content: body.message,
   });
 
-  const rows = await listMessages(conversationId);
-  return streamAssistant(conversationId, projectId, created, rows, body.message);
+  return streamAgent({ conversationId, projectId, ownerId, created, userMessage: body.message });
 }

@@ -21,7 +21,7 @@
 │     code   = 调 POST /api/chat { convId, ...turn }            │
 │              ↑ 后端：读历史→拼上下文→调AI→把user+assistant落库 │
 │              ↑ 流式吐回代码（前端不持有/不拼上下文）           │
-│     存代码  = 调 PUT  /api/projects/:id/files                 │
+│     存代码  = 调 POST /api/projects/:id/files                 │
 │     result = 丢进 iframe 沙箱执行（C 域，浏览器内，不走后端）    │
 │     if (RENDER_OK) break                                       │
 │     else turn = { role:'tool', content: 报错 }  // 作为下一轮  │
@@ -123,7 +123,7 @@ async function callDeepSeek({ messages, model }) {
 
 四张表，关系：`projects 1—N project_files`、`projects 1—N conversations 1—N messages`。
 
-> **🗑 软删（v0.2 补充，覆盖下方所有表/接口）**：四表均加 `deleted_at timestamptz`（null=存活）。约定见 `docs/backend-todo.md` S3 "软删约定"——① 所有读 `WHERE deleted_at IS NULL`；② DELETE 接口（⑥）改为 `UPDATE … SET deleted_at=now()` 并级联软删子表，不再依赖下文的硬删 CASCADE；③ `project_files` 的 `UNIQUE(project_id, path)` 改为**部分唯一索引** `WHERE deleted_at IS NULL`（否则软删后重建同名 path 撞约束）。下方建表 SQL 以最终 schema（`lib/db/schema.ts`）为准。
+> **🗑 软删（v0.2 补充，覆盖下方所有表/接口）**：四表均加 `deleted_at timestamptz`（null=存活）。约定见 `docs/backend-todo.md` S3 "软删约定"——① 所有读 `WHERE deleted_at IS NULL`；② 删除动作通过 `POST + action=delete` 实现为 `UPDATE … SET deleted_at=now()` 并级联软删子表，不再依赖下文的硬删 CASCADE；③ `project_files` 的 `UNIQUE(project_id, path)` 改为**部分唯一索引** `WHERE deleted_at IS NULL`（否则软删后重建同名 path 撞约束）。下方建表 SQL 以最终 schema（`lib/db/schema.ts`）为准。
 
 ```sql
 -- 项目（owner_id 用来做数据隔离）
@@ -195,10 +195,10 @@ export const projects = pgTable('projects', {
 | 2 | `GET /api/projects` | 列出我的项目 | |
 | 3 | `POST /api/projects` | 新建项目 | |
 | 4 | `GET /api/projects/[id]` | 取单个项目（含文件） | |
-| 5 | `PATCH /api/projects/[id]` | 项目改名 | |
-| 6 | `DELETE /api/projects/[id]` | 删项目（级联删文件/会话/消息） | |
+| 5 | `POST /api/projects/[id]` | 项目改名，body.action = `rename` | |
+| 6 | `POST /api/projects/[id]` | 删项目，body.action = `delete` | |
 | 7 | `GET /api/projects/[id]/files` | 取项目代码文件 | |
-| 8 | `PUT /api/projects/[id]/files` | 整体写入/更新代码文件 | |
+| 8 | `POST /api/projects/[id]/files` | 整体写入/更新代码文件 | |
 | 9 | `GET /api/projects/[id]/conversations` | 列会话 | |
 | 10 | `POST /api/projects/[id]/conversations` | 新建会话 | |
 | 11 | `GET /api/conversations/[id]/messages` | 取消息（按 seq 排序） | |
@@ -446,14 +446,17 @@ export async function GET(req, { params }) {
 
 ---
 
-### ⑤ PATCH /api/projects/[id] —— 改名
+### ⑤ POST /api/projects/[id] —— 改名
 
-**请求**：`{ "title": "新名字" }`
+**请求**：`{ "action": "rename", "title": "新名字" }`
 **伪代码**
 ```ts
-export async function PATCH(req, { params }) {
+export async function POST(req, { params }) {
   const ownerId = requireOwner(req)
-  const { title } = z.object({ title: z.string().min(1) }).parse(await req.json())
+  const { title } = z.object({
+    action: z.literal('rename'),
+    title: z.string().min(1),
+  }).parse(await req.json())
   const updated = await db.update(projects)
     .set({ title, updatedAt: new Date() })
     .where(and(eq(projects.id, params.id), eq(projects.ownerId, ownerId)))   // owner 也进 where
@@ -466,14 +469,15 @@ export async function PATCH(req, { params }) {
 
 ---
 
-### ⑥ DELETE /api/projects/[id] —— 删项目
+### ⑥ POST /api/projects/[id] —— 删项目
 
 **用途**：删项目，连带它的文件、会话、消息全删。
 **实现**：只删 projects 一行，子表靠外键 `ON DELETE CASCADE` 自动清。
 **伪代码**
 ```ts
-export async function DELETE(req, { params }) {
+export async function POST(req, { params }) {
   const ownerId = requireOwner(req)
+  z.object({ action: z.literal('delete') }).parse(await req.json())
   const deleted = await db.delete(projects)
     .where(and(eq(projects.id, params.id), eq(projects.ownerId, ownerId)))
     .returning({ id: projects.id })
@@ -510,27 +514,27 @@ async function assertOwns(projectId, ownerId) {
 
 ---
 
-### ⑧ PUT /api/projects/[id]/files —— 写入/更新代码
+### ⑧ POST /api/projects/[id]/files —— 写入/更新代码
 
 **用途**：AI 生成新代码、或用户手改代码后，整体存盘。
-**为什么用 PUT 不是 PATCH**：一期单文件，每次就是"用这份新内容覆盖"，语义是替换。
 
 **请求**
 ```json
-{ "files": [ { "path": "App.jsx", "content": "…新代码…" } ] }
+{ "action": "write", "files": [ { "path": "App.jsx", "content": "…新代码…" } ] }
 ```
 **实现**：对每个文件做 **upsert**（有则更新 content，无则插入），靠 `UNIQUE(project_id, path)` 约束。顺手更新项目的 `updated_at`。
 
 **伪代码**
 ```ts
-const PutFilesSchema = z.object({
+const PostFilesSchema = z.object({
+  action: z.literal('write'),
   files: z.array(z.object({ path: z.string(), content: z.string() })).min(1),
 })
 
-export async function PUT(req, { params }) {
+export async function POST(req, { params }) {
   const ownerId = requireOwner(req)
   await assertOwns(params.id, ownerId)
-  const { files } = PutFilesSchema.parse(await req.json())
+  const { files } = PostFilesSchema.parse(await req.json())
 
   for (const f of files) {
     await db.insert(projectFiles)

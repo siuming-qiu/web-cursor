@@ -16,17 +16,34 @@ export const ChatTurnSchema = z.discriminatedUnion("kind", [
 
 export type ChatTurn = z.infer<typeof ChatTurnSchema>;
 
+export const ChatEventType = {
+  Init: "init",
+  Code: "code",
+  Chat: "chat",
+  ToolsCall: "tools_call",
+  ToolResult: "tool_result",
+  FilesChanged: "files_changed",
+  Title: "title",
+  Done: "done",
+  Error: "error",
+} as const;
+
+export type ChatEventType = typeof ChatEventType[keyof typeof ChatEventType];
+
 export type ChatEvent =
-  | { type: "init"; conversationId: string; projectId: string }
-  | { type: "code"; delta: string }
-  | { type: "chat"; delta: string }
-  | { type: "tools_call"; index: number; name: ToolName | string; id: string }
+  | { type: typeof ChatEventType.Init; conversationId: string; projectId: string }
+  // 旧前端仍会处理 code；新后端不再发送，等前端切到 files/tool events 后删除。
+  | { type: typeof ChatEventType.Code; delta: string }
+  | { type: typeof ChatEventType.Chat; delta: string }
+  | { type: typeof ChatEventType.ToolsCall; index: number; name: ToolName | string; id: string }
+  | { type: typeof ChatEventType.ToolResult; name: ToolName | string; status: "ok" | "error" }
+  | { type: typeof ChatEventType.FilesChanged }
   | {
-      type: "title";
+      type: typeof ChatEventType.Title;
       conversationId: string;
       title: string;
       projectTitle?: string;
       conversationTitle?: string;
     }
-  | { type: "done" }
-  | { type: "error"; message: string };
+  | { type: typeof ChatEventType.Done }
+  | { type: typeof ChatEventType.Error; message: string };
