@@ -12,7 +12,7 @@ import { req } from "@/lib/api";
 import { useChat } from "@/hooks/useChat";
 import type { ProjectDetail, StoredMessage } from "@/lib/projectTypes";
 import { formatTime } from "@/lib/projectTypes";
-import TopBar from "@/components/TopBar";
+import TopBar, { type WorkbenchViewMode } from "@/components/TopBar";
 import ChatPanel from "@/components/ChatPanel";
 import EditorPanel from "@/components/EditorPanel";
 import PreviewPanel from "@/components/PreviewPanel";
@@ -75,6 +75,8 @@ export default function Workbench({ projectId }: { projectId?: string }) {
   const {
     openProject,
     openConversation: restoreConversation,
+    loadFiles,
+    runPreview,
     currentConversationId,
   } = s;
   const [exportOpen, setExportOpen] = useState(false);
@@ -82,7 +84,9 @@ export default function Workbench({ projectId }: { projectId?: string }) {
   const [projectDetail, setProjectDetail] = useState<ProjectDetail | null>(null);
   const [loadingProject, setLoadingProject] = useState(!!projectId);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<WorkbenchViewMode>("preview");
   const initialConversationIdRef = useRef<string | null>(null);
+  const initialPreviewProjectIdRef = useRef<string | null>(null);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -95,14 +99,16 @@ export default function Workbench({ projectId }: { projectId?: string }) {
     try {
       const detail = await req<ProjectDetail>("GET", `/api/projects/${projectId}`);
       setProjectDetail(detail);
-      openProject({ id: detail.id, title: detail.title });
+      openProject({ id: detail.id, title: detail.title, files: detail.files });
+      await loadFiles(detail.id);
       initialConversationIdRef.current = detail.conversations[0]?.id ?? null;
+      initialPreviewProjectIdRef.current = detail.id;
     } catch (e) {
       showToast(String(e instanceof Error ? e.message : e));
     } finally {
       setLoadingProject(false);
     }
-  }, [openProject, projectId]);
+  }, [loadFiles, openProject, projectId, runPreview]);
 
   useEffect(() => {
     loadProject();
@@ -132,6 +138,13 @@ export default function Workbench({ projectId }: { projectId?: string }) {
   }, [loadingProject, openConversation, projectDetail]);
 
   useEffect(() => {
+    if (loadingProject || !projectDetail || !initialPreviewProjectIdRef.current) return;
+    const previewProjectId = initialPreviewProjectIdRef.current;
+    initialPreviewProjectIdRef.current = null;
+    runPreview(previewProjectId);
+  }, [loadingProject, projectDetail, runPreview]);
+
+  useEffect(() => {
     const titleUpdate = s.lastTitleUpdate;
     if (!titleUpdate) return;
     setProjectDetail((detail) => detail
@@ -149,7 +162,7 @@ export default function Workbench({ projectId }: { projectId?: string }) {
 
   const newConversation = useCallback(() => {
     if (!projectDetail) return;
-    openProject({ id: projectDetail.id, title: projectDetail.title });
+    openProject({ id: projectDetail.id, title: projectDetail.title, files: projectDetail.files });
   }, [openProject, projectDetail]);
 
   useEffect(() => {
@@ -164,13 +177,33 @@ export default function Workbench({ projectId }: { projectId?: string }) {
   const conversations = useMemo(() => projectDetail?.conversations ?? [], [projectDetail]);
   const showHistory = !!projectId;
 
+  const rerunPreview = useCallback(() => {
+    setViewMode("preview");
+    requestAnimationFrame(() => s.rerun());
+  }, [s]);
+
+  const openFileInCode = useCallback(
+    (path: string) => {
+      setViewMode("code");
+      s.openFile(path);
+    },
+    [s]
+  );
+
+  const newFileInCode = useCallback(() => {
+    setViewMode("code");
+    s.newFile();
+  }, [s]);
+
   return (
     <div className="h-screen flex flex-col">
       <TopBar
         projName={s.projName}
         canAct={s.hasResult && !s.busy}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
         onHome={projectId ? () => router.push("/") : undefined}
-        onRerun={s.rerun}
+        onRerun={rerunPreview}
         onExport={() => setExportOpen(true)}
       />
 
@@ -238,21 +271,42 @@ export default function Workbench({ projectId }: { projectId?: string }) {
             </div>
           )}
 
-          <EditorPanel code={s.code} writing={s.writing} />
-          <PreviewPanel
-            iframeRef={s.iframeRef}
-            status={s.status}
-            overlay={s.overlay}
-            setOverlay={s.setOverlay}
-            previewActive={s.previewActive}
-          />
+          <div className="relative min-w-0 flex-1 bg-[#0f1117] p-3">
+            <div className={(viewMode === "code" ? "flex" : "hidden") + " absolute inset-3"}>
+              <EditorPanel
+                code={s.code}
+                files={s.files}
+                activePath={s.activePath}
+                dirty={s.dirty}
+                writing={s.writing}
+                saving={s.saving}
+                onChange={s.updateCode}
+                onOpenFile={openFileInCode}
+                onSave={s.saveActiveFile}
+                onNewFile={newFileInCode}
+                onRenameFile={s.renameActiveFile}
+                onDeleteFile={s.deleteActiveFile}
+              />
+            </div>
+            <div className={(viewMode === "preview" ? "flex" : "hidden") + " absolute inset-3 overflow-hidden rounded-xl border border-[#2a3142]"}>
+              <PreviewPanel
+                iframeRef={s.iframeRef}
+                status={s.status}
+                overlay={s.overlay}
+                setOverlay={s.setOverlay}
+                previewActive={s.previewActive}
+                canAct={s.hasResult && !s.busy}
+                onRerun={rerunPreview}
+                onExport={() => setExportOpen(true)}
+              />
+            </div>
+          </div>
         </main>
       )}
 
       {exportOpen && (
         <ExportModal
-          code={s.code}
-          projName={s.projName}
+          onBuildHtml={s.exportProjectHtml}
           onClose={() => setExportOpen(false)}
           onToast={showToast}
         />

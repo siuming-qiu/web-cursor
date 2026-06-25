@@ -1,25 +1,29 @@
 /**
- * [INPUT]: 用户 prompt（send 调用）+ PreviewPanel 挂上来的 iframe ref
- * [OUTPUT]: 会话 UI 状态 + send/stop/rerun；供 page 编排、组件展示
- * [POS]: B 域编排 hook —— 串起 后端 /api/chat（chatClient）→ 转译 → 沙箱 → 自我修复
- * [PROTOCOL]: LLM 只由 /api/chat 驱动；浏览器工具结果先 POST tool-results 闭合，再用 kind=resume 续写
- *
- * 流程：send(prompt) → 流式拿后端结果
- *   - type:"code" → 灌编辑器；流完 → 转译 + 跑沙箱；成功/失败都回传 tool result 闭合 tool_call
- *   - 失败 → 再发 kind:"resume"，后端从已闭合 transcript 继续生成修复版
- *   - type:"chat" → AI 在提问/回话 → 显示文字，停下等用户
+ * [INPUT]: 用户 prompt、项目/会话恢复请求、项目文件 REST API
+ * [OUTPUT]: 会话 UI 状态、项目文件状态、手动编辑动作、App.tsx 预览状态
+ * [POS]: B 域编排 hook —— 串起 /api/chat SSE、项目文件接口、Monaco 编辑器和 iframe 沙箱
+ * [PROTOCOL]: 当前代码事实源是 project_files；收到 files_changed 后重新读取文件，不再依赖 code SSE。
  */
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { req } from "@/lib/api";
+import { buildExportHtml } from "@/lib/export";
 import { SandboxController } from "@/lib/sandbox/controller";
-import { transpile, TranspileError } from "@/lib/transpile";
-import { postToolResult, streamChat } from "@/lib/chatClient";
-import type { Message, Phase, Status, Overlay } from "@/lib/types";
+import { compileProject, TranspileError, type TranspileProjectFile } from "@/lib/transpile";
+import { streamChat } from "@/lib/chatClient";
+import type { Message, Status, Overlay } from "@/lib/types";
 import type { ChatTurn } from "@/types/chat";
+import { ChatEventType } from "@/types/chat";
+import { ToolName } from "@/types/tool";
 import { ToolResultType } from "@/types/tool";
+import {
+  FileContentAction,
+  type ProjectFileContent,
+  type ProjectFileSummary,
+} from "@/lib/projectTypes";
 
-const MAX_ATTEMPTS = 4;
+const APP_ENTRY_PATH = "App.tsx";
 const EMPTY_OVERLAY: Overlay = { show: false, message: "", stack: "", showStack: false };
 const RESTORE_TIMEOUT_MS = 3000;
 
@@ -30,8 +34,14 @@ type StoredMessage = {
   meta?: unknown;
 };
 
-type StoredMeta = {
-  kind?: "code" | "reply";
+type FilesResponse = {
+  files: ProjectFileSummary[];
+};
+
+type ProjectRef = {
+  id: string;
+  title: string;
+  files?: ProjectFileSummary[];
 };
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
@@ -44,21 +54,33 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
   });
 }
 
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+function chooseFile(files: ProjectFileSummary[], preferredPath?: string) {
+  if (preferredPath && files.some((file) => file.path === preferredPath)) return preferredPath;
+  if (files.some((file) => file.path === APP_ENTRY_PATH)) return APP_ENTRY_PATH;
+  return files[0]?.path;
+}
+
 export function useChat() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const sandboxRef = useRef<SandboxController | null>(null);
   const abortRef = useRef({ aborted: false });
   const curAiIdRef = useRef<string>("");
   const lastPromptRef = useRef<string>("");
-  // B-shared：首条 chat 由后端懒建，init 回传后存下来；之后每轮带着，续到同一项目/会话
   const projectIdRef = useRef<string | undefined>(undefined);
   const convIdRef = useRef<string | undefined>(undefined);
-  // 当前等待浏览器执行结果的 model tool_call。成功和失败都必须回传闭合。
-  const pendingToolCallIdRef = useRef<string | undefined>(undefined);
+  const activePathRef = useRef<string | undefined>(undefined);
 
   const [messages, setMessages] = useState<Message[]>([]);
+  const [files, setFiles] = useState<ProjectFileSummary[]>([]);
+  const [activePath, setActivePath] = useState<string | undefined>(undefined);
   const [code, setCode] = useState("");
+  const [dirty, setDirty] = useState(false);
   const [writing, setWriting] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [projName, setProjName] = useState("未命名项目");
   const [status, setStatus] = useState<Status>({ kind: "", text: "等待生成" });
   const [overlay, setOverlay] = useState<Overlay>(EMPTY_OVERLAY);
@@ -83,6 +105,15 @@ export function useChat() {
     return sandboxRef.current;
   }, []);
 
+  const waitForSandbox = useCallback(async () => {
+    for (let i = 0; i < 8; i++) {
+      const sandbox = ensureSandbox();
+      if (sandbox) return sandbox;
+      await nextFrame();
+    }
+    return null;
+  }, [ensureSandbox]);
+
   useEffect(() => {
     ensureSandbox();
   });
@@ -100,30 +131,139 @@ export function useChat() {
     []
   );
 
-  const setAttempt = useCallback(
-    (n: number, phase: Phase, note?: string) => {
-      updateAi((m) => {
-        const attempts = [...m.attempts];
-        const idx = attempts.findIndex((a) => a.n === n);
-        const next = { n, phase, note };
-        if (idx >= 0) attempts[idx] = next;
-        else attempts.push(next);
-        return { ...m, attempts };
-      });
+  const readProjectFile = useCallback(async (projectId: string, path: string) => {
+    return req<ProjectFileContent>(
+      "GET",
+      `/api/projects/${projectId}/files/content?path=${encodeURIComponent(path)}`
+    );
+  }, []);
+
+  const openFile = useCallback(
+    async (path: string) => {
+      const projectId = projectIdRef.current;
+      if (!projectId) return;
+      const file = await readProjectFile(projectId, path);
+      activePathRef.current = file.path;
+      setActivePath(file.path);
+      setCode(file.content);
+      setDirty(false);
     },
-    [updateAi]
+    [readProjectFile]
   );
 
-  const openProject = useCallback((project: { id: string; title: string }) => {
+  const loadFiles = useCallback(
+    async (projectId = projectIdRef.current, preferredPath?: string) => {
+      if (!projectId) return [];
+      const response = await req<FilesResponse>("GET", `/api/projects/${projectId}/files`);
+      const nextFiles = response.files;
+      setFiles(nextFiles);
+
+      const nextPath = chooseFile(nextFiles, preferredPath ?? activePathRef.current);
+      if (nextPath) {
+        try {
+          await openFile(nextPath);
+        } catch (error) {
+          activePathRef.current = undefined;
+          setActivePath(undefined);
+          setCode("");
+          setDirty(false);
+          setStatus({
+            kind: "err",
+            text: "文件读取失败",
+            meta: error instanceof Error ? error.message : String(error),
+          });
+        }
+      } else {
+        activePathRef.current = undefined;
+        setActivePath(undefined);
+        setCode("");
+        setDirty(false);
+      }
+      return nextFiles;
+    },
+    [openFile]
+  );
+
+  const readProjectFiles = useCallback(
+    async (projectId: string): Promise<TranspileProjectFile[]> => {
+      const response = await req<FilesResponse>("GET", `/api/projects/${projectId}/files`);
+      return Promise.all(
+        response.files.map(async (file) => {
+          const content = await readProjectFile(projectId, file.path);
+          return { path: content.path, content: content.content };
+        })
+      );
+    },
+    [readProjectFile]
+  );
+
+  const runPreview = useCallback(
+    async (projectId = projectIdRef.current) => {
+      if (!projectId) return false;
+      let projectFiles: TranspileProjectFile[];
+      try {
+        projectFiles = await readProjectFiles(projectId);
+      } catch {
+        setStatus({ kind: "err", text: "读取预览文件失败" });
+        setPreviewActive(false);
+        return false;
+      }
+
+      setPreviewActive(true);
+      setStatus({ kind: "load", text: "编译项目中…（esbuild-wasm）" });
+      try {
+        const compiled = await compileProject(projectFiles);
+        setStatus({ kind: "load", text: "执行中…" });
+        const sandbox = await waitForSandbox();
+        if (!sandbox) {
+          setStatus({ kind: "", text: `${compiled.entryPath} 已编译，等待预览挂载` });
+          return false;
+        }
+        const t0 = performance.now();
+        const result = await withTimeout(sandbox.run(compiled), RESTORE_TIMEOUT_MS);
+        const dur = Math.round(performance.now() - t0);
+
+        if (result?.type === ToolResultType.RenderOk) {
+          setStatus({ kind: "ok", text: "渲染成功", meta: `· ${dur}ms` });
+          setOverlay((o) => ({ ...o, show: false }));
+          setHasResult(true);
+          return true;
+        }
+
+        if (result) {
+          setStatus({ kind: "err", text: "运行报错" });
+          setOverlay({ show: true, message: result.message, stack: result.stack, showStack: false });
+          return false;
+        }
+
+        setStatus({ kind: "", text: `${compiled.entryPath} 已加载` });
+        return false;
+      } catch (error) {
+        const message = error instanceof TranspileError
+          ? error.failures.map((failure) => failure.text).join("; ")
+          : String(error instanceof Error ? error.message : error);
+        setStatus({ kind: "err", text: "编译报错" });
+        setOverlay({ show: true, message: "编译错误：" + message, stack: "", showStack: false });
+        return false;
+      }
+    },
+    [readProjectFiles, waitForSandbox]
+  );
+
+  const openProject = useCallback((project: ProjectRef) => {
     projectIdRef.current = project.id;
     convIdRef.current = undefined;
-    pendingToolCallIdRef.current = undefined;
+    activePathRef.current = undefined;
     setCurrentProjectId(project.id);
     setCurrentConversationId(undefined);
     setProjName(project.title || "未命名项目");
     setMessages([]);
+    setFiles(project.files ?? []);
+    setActivePath(undefined);
     setCode("");
+    setDirty(false);
     setWriting(false);
+    setSaving(false);
     setBusy(false);
     setHasResult(false);
     setPreviewActive(false);
@@ -132,242 +272,118 @@ export function useChat() {
   }, []);
 
   const openConversation = useCallback(
-    async (project: { id: string; title: string }, conversationId: string, rows: StoredMessage[]) => {
+    async (project: ProjectRef, conversationId: string, rows: StoredMessage[]) => {
       projectIdRef.current = project.id;
       convIdRef.current = conversationId;
-      pendingToolCallIdRef.current = undefined;
+      activePathRef.current = undefined;
       setCurrentProjectId(project.id);
       setCurrentConversationId(conversationId);
       setProjName(project.title || "未命名项目");
       setWriting(false);
+      setSaving(false);
       setBusy(false);
+      setDirty(false);
       setOverlay(EMPTY_OVERLAY);
 
       const restored: Message[] = [];
-      let lastCode = "";
       for (const row of rows) {
-        const meta = (row.meta ?? {}) as StoredMeta;
         if (row.role === "user") {
           restored.push({ id: row.id, role: "user", text: row.content });
-        } else if (row.role === "assistant") {
-          if (meta.kind === "code") {
-            lastCode = row.content;
-            restored.push({
-              id: row.id,
-              role: "ai",
-              attempts: [{ n: 1, phase: "ok" }],
-              summary: "历史代码回复",
-              summaryKind: "ok",
-            });
-          } else {
-            restored.push({ id: row.id, role: "ai", attempts: [], chatText: row.content });
-          }
+        } else if (row.role === "assistant" && row.content.trim()) {
+          restored.push({ id: row.id, role: "ai", attempts: [], chatText: row.content });
         }
       }
 
       setMessages(restored);
-      setCode(lastCode);
-      setHasResult(!!lastCode);
-      setPreviewActive(!!lastCode);
-
-      if (!lastCode) {
-        setStatus({ kind: "", text: "这条会话还没有代码" });
-        return;
-      }
-
-      setStatus({ kind: "load", text: "恢复预览中…" });
       try {
-        const js = await transpile(lastCode);
-        const sandbox = ensureSandbox();
-        if (!sandbox) {
-          setStatus({ kind: "", text: "历史代码已加载" });
-          return;
-        }
-        const result = await withTimeout(sandbox.run(js), RESTORE_TIMEOUT_MS);
-        if (result?.type === ToolResultType.RenderOk) {
-          setStatus({ kind: "ok", text: "历史预览已恢复" });
-          setOverlay((o) => ({ ...o, show: false }));
-        } else if (result) {
-          setStatus({ kind: "err", text: "历史代码运行报错" });
-          setOverlay({ show: true, message: result.message, stack: result.stack, showStack: false });
-        } else {
-          setStatus({ kind: "", text: "历史代码已加载" });
-        }
-      } catch (e) {
-        setStatus({ kind: "err", text: "历史代码编译报错" });
-        setOverlay({ show: true, message: String(e instanceof Error ? e.message : e), stack: "", showStack: false });
+        await loadFiles(project.id, APP_ENTRY_PATH);
+        await runPreview(project.id);
+      } catch (error) {
+        setStatus({
+          kind: "err",
+          text: "恢复项目文件失败",
+          meta: error instanceof Error ? error.message : String(error),
+        });
       }
     },
-    [ensureSandbox]
+    [loadFiles, runPreview]
   );
 
-  // 一轮 agent loop：流式取结果 → 转译 → 沙箱 → 出错回喂（自我修复）
+  const refreshAfterFilesChanged = useCallback(async () => {
+    const projectId = projectIdRef.current;
+    if (!projectId) return false;
+    await loadFiles(projectId, activePathRef.current ?? APP_ENTRY_PATH);
+    return runPreview(projectId);
+  }, [loadFiles, runPreview]);
+
   const runLoop = useCallback(
     async (firstMessage: string) => {
-      let turn: ChatTurn = {
+      const turn: ChatTurn = {
         kind: "user",
         message: firstMessage,
         projectId: projectIdRef.current,
         conversationId: convIdRef.current,
       };
+      let filesChanged = false;
 
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        if (abortRef.current.aborted) return;
-        setAttempt(attempt, "writing");
-        setWriting(true);
-        setStatus({ kind: "load", text: "AI 正在写代码…" });
+      setWriting(true);
+      setStatus({ kind: "load", text: "AI 正在修改文件…" });
 
-        // 1) 流式取后端结果。每轮重置：code 是增量 delta，从空开始 append
-        let codeText = "";
-        let gotCode = false;
-        setCode("");
-        try {
-          for await (const ev of streamChat(turn)) {
-            if (abortRef.current.aborted) return;
-            if (ev.type === "tools_call") {
-              pendingToolCallIdRef.current = ev.id;
+      try {
+        for await (const ev of streamChat(turn)) {
+          if (abortRef.current.aborted) return;
+
+          if (ev.type === ChatEventType.Init) {
+            projectIdRef.current = ev.projectId;
+            convIdRef.current = ev.conversationId;
+            setCurrentProjectId(ev.projectId);
+            setCurrentConversationId(ev.conversationId);
+          } else if (ev.type === ChatEventType.ToolsCall) {
+            if (ev.name === ToolName.WriteFile || ev.name === ToolName.DeleteFile || ev.name === ToolName.RenameFile) {
+              setStatus({ kind: "load", text: "AI 正在写入文件…" });
+            } else if (ev.name === ToolName.ListFiles || ev.name === ToolName.ReadFile) {
+              setStatus({ kind: "load", text: "AI 正在读取文件…" });
             }
-            if (ev.type === "init") {
-              // 后端懒建了项目/会话 → 存下来，后续轮次带着续聊
-              projectIdRef.current = ev.projectId;
-              convIdRef.current = ev.conversationId;
-              setCurrentProjectId(ev.projectId);
-              setCurrentConversationId(ev.conversationId);
-            } else if (ev.type === "code") {
-              gotCode = true;
-              codeText += ev.delta;            // 累积全量（给转译/沙箱用）
-              setCode((c) => c + ev.delta);    // 编辑器增量追加
-            } else if (ev.type === "chat") {
-              updateAi((m) => ({ ...m, chatText: (m.chatText ?? "") + ev.delta }));
-            } else if (ev.type === "title") {
-              if (ev.projectTitle) setProjName(ev.projectTitle);
-              setLastTitleUpdate({ conversationId: ev.conversationId, title: ev.title, projectTitle: ev.projectTitle });
-            } else if (ev.type === "error") {
-              throw new Error(ev.message);
+          } else if (ev.type === ChatEventType.ToolResult) {
+            if (ev.status === "error") {
+              setStatus({ kind: "err", text: `${ev.name} 执行失败` });
             }
-            // "done" 忽略，以流关闭为准
+          } else if (ev.type === ChatEventType.FilesChanged) {
+            filesChanged = true;
+            setStatus({ kind: "load", text: "文件已更新，刷新预览…" });
+          } else if (ev.type === ChatEventType.Chat) {
+            updateAi((m) => ({ ...m, chatText: (m.chatText ?? "") + ev.delta }));
+          } else if (ev.type === ChatEventType.Title) {
+            if (ev.projectTitle) setProjName(ev.projectTitle);
+            setLastTitleUpdate({ conversationId: ev.conversationId, title: ev.title, projectTitle: ev.projectTitle });
+          } else if (ev.type === ChatEventType.Error) {
+            throw new Error(ev.message);
           }
-        } catch (e: any) {
-          setWriting(false);
-          setStatus({ kind: "err", text: "请求失败", meta: "" });
-          setOverlay({ show: true, message: String(e?.message ?? e), stack: "", showStack: false });
-          updateAi((m) => ({ ...m, summaryKind: "fail", summary: "调用后端失败" }));
-          setBusy(false);
-          return;
         }
+      } catch (error) {
         setWriting(false);
-
-        // 2) AI 没写代码（在提问/回话）→ 停下等用户
-        if (!gotCode) {
-          setStatus({ kind: "", text: "等待你的回复" });
-          setBusy(false);
-          return;
-        }
-
-        // 3) 转译
-        setStatus({ kind: "load", text: "转译中…（esbuild-wasm）" });
-        setAttempt(attempt, "transpiling");
-        let js: string;
-        try {
-          js = await transpile(codeText);
-        } catch (e) {
-          const failures =
-            e instanceof TranspileError ? e.failures : [{ text: String(e), location: null }];
-          const txt = failures.map((f) => f.text).join("; ");
-          setAttempt(attempt, "compile-fail", txt);
-          setStatus({ kind: "err", text: "编译报错", meta: `· 第${attempt}次` });
-          setOverlay({ show: true, message: "编译错误：" + txt, stack: "", showStack: false });
-          setPreviewActive(true);
-
-          const toolCallId = pendingToolCallIdRef.current;
-          pendingToolCallIdRef.current = undefined;
-          if (convIdRef.current && toolCallId) {
-            await postToolResult(convIdRef.current, toolCallId, {
-              status: "error",
-              type: ToolResultType.CompileError,
-              message: txt,
-            });
-            if (attempt === MAX_ATTEMPTS) return finishFail();
-            turn = { kind: "resume", conversationId: convIdRef.current };
-          } else {
-            if (attempt === MAX_ATTEMPTS) return finishFail();
-            turn = {
-              kind: "user",
-              message: `代码编译失败：${txt}\n\n当前代码：\n${codeText}\n\n请修复后输出完整代码。`,
-              projectId: projectIdRef.current,
-              conversationId: convIdRef.current,
-            };
-          }
-          continue;
-        }
-
-        // 4) 跑沙箱
-        setStatus({ kind: "load", text: "执行中…" });
-        setAttempt(attempt, "running");
-        setPreviewActive(true);
-        const t0 = performance.now();
-        const result = await ensureSandbox()!.run(js);
-        const dur = Math.round(performance.now() - t0);
-        if (abortRef.current.aborted) return;
-
-        // 5) 读结果
-        if (result.type === ToolResultType.RenderOk) {
-          const toolCallId = pendingToolCallIdRef.current;
-          pendingToolCallIdRef.current = undefined;
-          if (convIdRef.current && toolCallId) {
-            await postToolResult(convIdRef.current, toolCallId, {
-              status: "ok",
-              type: ToolResultType.RenderOk,
-              durationMs: dur,
-            });
-          }
-          setAttempt(attempt, "ok");
-          setStatus({ kind: "ok", text: "渲染成功", meta: `· 第${attempt}次 · ${dur}ms` });
-          setOverlay((o) => ({ ...o, show: false }));
-          setHasResult(true);
-          updateAi((m) => ({
-            ...m,
-            summaryKind: "ok",
-            summary: attempt > 1 ? `已修复 ✓ 第 ${attempt} 次渲染成功` : "已生成 ✓ 渲染成功",
-            diff: attempt > 1 ? "AI 读取报错后自动修正" : undefined,
-          }));
-          setBusy(false);
-          return;
-        }
-
-        setAttempt(attempt, "runtime-fail", result.message);
-        setStatus({ kind: "err", text: "运行报错", meta: `· 第${attempt}次` });
-        setOverlay({ show: true, message: result.message, stack: result.stack, showStack: false });
-
-        const toolCallId = pendingToolCallIdRef.current;
-        pendingToolCallIdRef.current = undefined;
-        if (convIdRef.current && toolCallId) {
-          await postToolResult(convIdRef.current, toolCallId, {
-            status: "error",
-            type: ToolResultType.RuntimeError,
-            message: result.message,
-            stack: result.stack,
-          });
-          if (attempt === MAX_ATTEMPTS) return finishFail();
-          turn = { kind: "resume", conversationId: convIdRef.current };
-        } else {
-          if (attempt === MAX_ATTEMPTS) return finishFail();
-          turn = {
-            kind: "user",
-            message: `运行报错，请修复后输出完整代码：\n${result.message}\n${result.stack}\n\n当前代码：\n${codeText}`,
-            projectId: projectIdRef.current,
-            conversationId: convIdRef.current,
-          };
-        }
-      }
-
-      function finishFail() {
-        updateAi((m) => ({ ...m, summaryKind: "fail", summary: "尝试多次仍未修复 ✕，可重试或手动接管" }));
-        setStatus({ kind: "err", text: "未能修复", meta: "" });
+        setStatus({ kind: "err", text: "请求失败", meta: "" });
+        setOverlay({ show: true, message: String(error instanceof Error ? error.message : error), stack: "", showStack: false });
+        updateAi((m) => ({ ...m, summaryKind: "fail", summary: "调用后端失败" }));
         setBusy(false);
+        return;
       }
+
+      setWriting(false);
+
+      if (filesChanged) {
+        const ok = await refreshAfterFilesChanged();
+        updateAi((m) => ({
+          ...m,
+          summaryKind: ok ? "ok" : "fail",
+          summary: ok ? "已更新文件并渲染成功" : "已更新文件，但预览需要处理",
+        }));
+      } else {
+        setStatus({ kind: "", text: "等待你的回复" });
+      }
+      setBusy(false);
     },
-    [ensureSandbox, setAttempt, updateAi]
+    [refreshAfterFilesChanged, updateAi]
   );
 
   const send = useCallback(
@@ -385,20 +401,103 @@ export function useChat() {
         { id: aiId, role: "ai", attempts: [] },
       ]);
       setBusy(true);
-      setHasResult(false);
       setOverlay(EMPTY_OVERLAY);
-      setCode("");
-      pendingToolCallIdRef.current = undefined;
       abortRef.current = { aborted: false };
 
       runLoop(p).catch((err) => {
         setBusy(false);
+        setWriting(false);
         setStatus({ kind: "err", text: "内部错误", meta: "" });
         setOverlay({ show: true, message: String(err?.message ?? err), stack: String(err?.stack ?? ""), showStack: false });
       });
     },
     [busy, ensureSandbox, runLoop]
   );
+
+  const updateCode = useCallback((value: string) => {
+    setCode(value);
+    setDirty(true);
+  }, []);
+
+  const saveActiveFile = useCallback(async () => {
+    const projectId = projectIdRef.current;
+    const path = activePathRef.current;
+    if (!projectId || !path) return;
+    setSaving(true);
+    try {
+      await req<ProjectFileContent>("POST", `/api/projects/${projectId}/files/content`, {
+        action: FileContentAction.Write,
+        path,
+        content: code,
+      });
+      setDirty(false);
+      await loadFiles(projectId, path);
+      await runPreview(projectId);
+    } finally {
+      setSaving(false);
+    }
+  }, [code, loadFiles, runPreview]);
+
+  const newFile = useCallback(async () => {
+    const projectId = projectIdRef.current;
+    if (!projectId) {
+      window.alert("请先发送一次需求创建项目，再新建文件。");
+      return;
+    }
+    const path = window.prompt("输入项目内文件路径，例如 components/Button.tsx");
+    if (!path) return;
+    setSaving(true);
+    try {
+      await req<ProjectFileContent>("POST", `/api/projects/${projectId}/files/content`, {
+        action: FileContentAction.Write,
+        path,
+        content: "",
+      });
+      await loadFiles(projectId, path);
+    } finally {
+      setSaving(false);
+    }
+  }, [loadFiles]);
+
+  const renameActiveFile = useCallback(async () => {
+    const projectId = projectIdRef.current;
+    const oldPath = activePathRef.current;
+    if (!projectId || !oldPath) return;
+    const newPath = window.prompt("输入新的项目内路径", oldPath);
+    if (!newPath || newPath === oldPath) return;
+    setSaving(true);
+    try {
+      await req<ProjectFileSummary>("POST", `/api/projects/${projectId}/files/rename`, { oldPath, newPath });
+      await loadFiles(projectId, newPath);
+      await runPreview(projectId);
+    } finally {
+      setSaving(false);
+    }
+  }, [loadFiles, runPreview]);
+
+  const deleteActiveFile = useCallback(async () => {
+    const projectId = projectIdRef.current;
+    const path = activePathRef.current;
+    if (!projectId || !path) return;
+    if (!window.confirm(`删除 ${path}？`)) return;
+    setSaving(true);
+    try {
+      await req<{ ok: true; path: string }>("POST", `/api/projects/${projectId}/files/content`, {
+        action: FileContentAction.Delete,
+        path,
+      });
+      await loadFiles(projectId, APP_ENTRY_PATH);
+      await runPreview(projectId);
+    } finally {
+      setSaving(false);
+    }
+  }, [loadFiles, runPreview]);
+
+  const exportProjectHtml = useCallback(async () => {
+    const projectId = projectIdRef.current;
+    if (!projectId) throw new Error("当前没有项目，无法导出。");
+    return buildExportHtml(await readProjectFiles(projectId), projName);
+  }, [projName, readProjectFiles]);
 
   const stop = useCallback(() => {
     abortRef.current.aborted = true;
@@ -415,8 +514,12 @@ export function useChat() {
     iframeRef,
     curAiId: curAiIdRef,
     messages,
+    files,
+    activePath,
     code,
+    dirty,
     writing,
+    saving,
     projName,
     status,
     overlay,
@@ -429,6 +532,15 @@ export function useChat() {
     lastTitleUpdate,
     openProject,
     openConversation,
+    loadFiles,
+    runPreview,
+    openFile,
+    updateCode,
+    saveActiveFile,
+    newFile,
+    renameActiveFile,
+    deleteActiveFile,
+    exportProjectHtml,
     send,
     stop,
     rerun,

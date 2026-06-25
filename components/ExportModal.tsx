@@ -1,16 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { buildExportHtml } from "@/lib/export";
 
 export default function ExportModal({
-  code,
-  projName,
+  onBuildHtml,
   onClose,
   onToast,
 }: {
-  code: string;
-  projName: string;
+  onBuildHtml: () => Promise<string>;
   onClose: () => void;
   onToast: (msg: string) => void;
 }) {
@@ -18,7 +15,7 @@ export default function ExportModal({
 
   async function download() {
     try {
-      const html = await buildExportHtml(code, projName);
+      const html = await onBuildHtml();
       const blob = new Blob([html], { type: "text/html" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);

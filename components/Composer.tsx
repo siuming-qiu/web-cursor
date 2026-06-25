@@ -23,6 +23,8 @@ export default function Composer({
     <div className="flex-none border-t border-border p-[12px_14px] bg-panel">
       <div className="bg-codebg border border-border rounded-[11px] px-[10px] py-2 focus-within:border-accent transition-colors">
         <textarea
+          id="chat-composer"
+          name="chat-composer"
           className="w-full bg-transparent border-none outline-none text-fg resize-none text-[13.5px] leading-[1.5] h-[38px]"
           placeholder="描述你想要的界面…（例如：做一个待办列表）"
           value={input}

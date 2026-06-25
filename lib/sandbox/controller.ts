@@ -1,10 +1,12 @@
 /**
- * [INPUT]: iframe 元素 + 转译后的 JS（run 调用）
+ * [INPUT]: iframe 元素 + 项目编译产物（run 调用）
  * [OUTPUT]: run() 返回 Promise<SandboxResult>；console 经回调透出
  * [POS]: B 域侧的沙箱桥 —— 把 iframe 的 postMessage 协议封装成 Promise，喂给 agent loop
  * [PROTOCOL]: 回传消息类型与 runner.ts 对齐
  */
 "use client";
+
+import type { CompiledProject } from "@/lib/transpile";
 
 export type SandboxResult =
   | { type: "RENDER_OK" }
@@ -72,8 +74,8 @@ export class SandboxController {
     return new Promise((res) => this.readyWaiters.push(res));
   }
 
-  /** 注入 JS 执行，等沙箱回 RENDER_OK / RUNTIME_ERROR / 超时 */
-  async run(js: string): Promise<SandboxResult> {
+  /** 注入项目编译产物执行，等沙箱回 RENDER_OK / RUNTIME_ERROR / 超时 */
+  async run(project: CompiledProject): Promise<SandboxResult> {
     await this.whenReady();
     return new Promise<SandboxResult>((resolve) => {
       this.pending = resolve;
@@ -82,7 +84,7 @@ export class SandboxController {
         this.timer = null;
         resolve({ type: "RUNTIME_ERROR", message: "渲染超时（疑似卡死或死循环）", stack: "" });
       }, RUN_TIMEOUT_MS);
-      this.iframe.contentWindow?.postMessage({ type: "RUN", code: js }, "*");
+      this.iframe.contentWindow?.postMessage({ type: "RUN", project }, "*");
     });
   }
 

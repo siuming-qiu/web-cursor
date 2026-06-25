@@ -9,7 +9,7 @@
 
 import { getOwnerId } from "./owner";
 
-type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
+type Method = "GET" | "POST";
 
 /** 全局 fetch 封装：默认带 x-owner-id 头，非 2xx 抛错，2xx 返回解析后的数据。 */
 export async function req<T = unknown>(method: Method, path: string, body?: unknown): Promise<T> {

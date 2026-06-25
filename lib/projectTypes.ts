@@ -12,9 +12,26 @@ export type Conversation = {
   createdAt: string;
 };
 
+export type ProjectFileSummary = {
+  path: string;
+  updatedAt: string;
+};
+
+export type ProjectFileContent = ProjectFileSummary & {
+  content: string;
+};
+
 export type ProjectDetail = Project & {
   conversations: Conversation[];
+  files: ProjectFileSummary[];
 };
+
+export const FileContentAction = {
+  Write: "write",
+  Delete: "delete",
+} as const;
+
+export type FileContentAction = typeof FileContentAction[keyof typeof FileContentAction];
 
 export type StoredMessage = {
   id: string;

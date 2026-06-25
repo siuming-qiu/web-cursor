@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 父窗口 postMessage {type:'RUN', code}（转译后的 JS）
+ * [INPUT]: 父窗口 postMessage {type:'RUN', project:{js,css}}（项目编译产物）
  * [OUTPUT]: 向父窗口 postMessage RENDER_OK / RUNTIME_ERROR / CONSOLE / SANDBOX_READY
  * [POS]: C 域沙箱内容 —— 执行不可信 AI 代码 + 把结果回传，是自我修复闭环的接缝
  * [PROTOCOL]: 这是 iframe 的 srcdoc，纯静态脚本（无 AI 代码内联）；改回传协议要同步 controller.ts
@@ -29,6 +29,7 @@ export const RUNNER_HTML = `<!doctype html>
   body{font-family:-apple-system,"PingFang SC",sans-serif;padding:0}
   #root{padding:0}
 </style>
+<style id="project-css"></style>
 </head>
 <body>
 <div id="root"></div>
@@ -85,19 +86,25 @@ window.addEventListener("message", async (e) => {
   if (!d || d.type !== "RUN") return;
   runFailed = false;
   try {
-    const blob = new Blob([d.code], { type: "text/javascript" });
+    const project = d.project || {};
+    document.getElementById("project-css").textContent = String(project.css || "");
+    if (root) {
+      root.unmount();
+      root = null;
+    }
+    document.getElementById("root").replaceChildren();
+
+    const blob = new Blob([String(project.js || "")], { type: "text/javascript" });
     const url = URL.createObjectURL(blob);
     let mod;
     try { mod = await import(url); } finally { URL.revokeObjectURL(url); }
 
     const App = mod.default;
-    if (typeof App !== "function") {
-      fail("模块没有 export default 一个 React 组件");
-      return;
+    if (typeof App === "function") {
+      if (!root) root = createRoot(document.getElementById("root"));
+      // ErrorBoundary 重新挂载：key 变化强制重建，确保上一轮错误状态不残留
+      root.render(React.createElement(ErrorBoundary, { key: Math.random() }, React.createElement(App)));
     }
-    if (!root) root = createRoot(document.getElementById("root"));
-    // ErrorBoundary 重新挂载：key 变化强制重建，确保上一轮错误状态不残留
-    root.render(React.createElement(ErrorBoundary, { key: Math.random() }, React.createElement(App)));
 
     // 渲染后两帧无错 → 判定 RENDER_OK
     requestAnimationFrame(() =>
