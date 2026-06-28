@@ -82,6 +82,20 @@ export async function listProjectFiles(projectId: string): Promise<ProjectFileSu
   return rows.map(toSummary);
 }
 
+export async function listProjectFileContents(projectId: string): Promise<ProjectFileContent[]> {
+  const rows = await db
+    .select({
+      path: projectFiles.path,
+      content: projectFiles.content,
+      updatedAt: projectFiles.updatedAt,
+    })
+    .from(projectFiles)
+    .where(and(eq(projectFiles.projectId, projectId), isNull(projectFiles.deletedAt)))
+    .orderBy(asc(projectFiles.path));
+
+  return rows.map(toContent);
+}
+
 export async function readProjectFile(projectId: string, path: string): Promise<ProjectFileContent> {
   validateProjectFilePath(path);
 

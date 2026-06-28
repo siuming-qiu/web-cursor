@@ -17,7 +17,7 @@ export interface ConsoleEntry {
   text: string;
 }
 
-const RUN_TIMEOUT_MS = 8000; // 超时即判"卡死"（R3）
+const RUN_TIMEOUT_MS = 30000; // 首次加载 esm.sh 依赖可能较慢；超时仍视为卡死/依赖加载失败（R3）
 
 export class SandboxController {
   private iframe: HTMLIFrameElement;
@@ -82,7 +82,7 @@ export class SandboxController {
       this.timer = setTimeout(() => {
         this.pending = null;
         this.timer = null;
-        resolve({ type: "RUNTIME_ERROR", message: "渲染超时（疑似卡死或死循环）", stack: "" });
+        resolve({ type: "RUNTIME_ERROR", message: "渲染超时（依赖加载过慢、网络失败或疑似死循环）", stack: "" });
       }, RUN_TIMEOUT_MS);
       this.iframe.contentWindow?.postMessage({ type: "RUN", project }, "*");
     });

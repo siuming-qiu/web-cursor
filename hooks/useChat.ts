@@ -12,8 +12,8 @@ import { buildExportHtml } from "@/lib/export";
 import { SandboxController } from "@/lib/sandbox/controller";
 import { compileProject, TranspileError, type TranspileProjectFile } from "@/lib/transpile";
 import { streamChat } from "@/lib/chatClient";
-import type { Message, SendAttachment, Status, Overlay } from "@/lib/types";
-import type { ChatTurn } from "@/types/chat";
+import type { AgentFileChange, Message, SendAttachment, Status, Overlay } from "@/lib/types";
+import type { ChatEvent, ChatTurn } from "@/types/chat";
 import { ChatEventType } from "@/types/chat";
 import { ToolName } from "@/types/tool";
 import { ToolResultType } from "@/types/tool";
@@ -26,7 +26,6 @@ import {
 const APP_ENTRY_PATH = "src/App.tsx";
 const REQUIRED_PROJECT_FILES = ["package.json", "index.html", "src/main.tsx", APP_ENTRY_PATH] as const;
 const EMPTY_OVERLAY: Overlay = { show: false, message: "", stack: "", showStack: false };
-const RESTORE_TIMEOUT_MS = 3000;
 
 type StoredMessage = {
   id: string;
@@ -39,21 +38,15 @@ type FilesResponse = {
   files: ProjectFileSummary[];
 };
 
+type FilesWithContentResponse = {
+  files: ProjectFileContent[];
+};
+
 type ProjectRef = {
   id: string;
   title: string;
   files?: ProjectFileSummary[];
 };
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
-  let timer: number | undefined;
-  const timeout = new Promise<null>((resolve) => {
-    timer = window.setTimeout(() => resolve(null), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => {
-    if (timer !== undefined) window.clearTimeout(timer);
-  });
-}
 
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
@@ -80,6 +73,8 @@ export function useChat() {
   const projectIdRef = useRef<string | undefined>(undefined);
   const convIdRef = useRef<string | undefined>(undefined);
   const activePathRef = useRef<string | undefined>(undefined);
+  const dirtyRef = useRef(false);
+  const fileContentsRef = useRef(new Map<string, string>());
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [files, setFiles] = useState<ProjectFileSummary[]>([]);
@@ -101,6 +96,10 @@ export function useChat() {
     title: string;
     projectTitle?: string;
   } | null>(null);
+
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
 
   const ensureSandbox = useCallback(() => {
     if (iframeRef.current && !sandboxRef.current) {
@@ -138,70 +137,92 @@ export function useChat() {
     []
   );
 
-  const readProjectFile = useCallback(async (projectId: string, path: string) => {
-    return req<ProjectFileContent>(
+  const appendFileChange = useCallback((change: Omit<AgentFileChange, "id">) => {
+    updateAi((m) => ({
+      ...m,
+      fileChanges: [...(m.fileChanges ?? []), { ...change, id: crypto.randomUUID() }],
+    }));
+  }, [updateAi]);
+
+  const loadProjectFileContents = useCallback(async (projectId: string) => {
+    const response = await req<FilesWithContentResponse>(
       "GET",
-      `/api/projects/${projectId}/files/content?path=${encodeURIComponent(path)}`
+      `/api/projects/${projectId}/files?includeContent=1`
     );
+    fileContentsRef.current = new Map(response.files.map((file) => [file.path, file.content]));
+    const summaries = response.files.map(({ content: _content, ...summary }) => summary);
+    setFiles(summaries);
+    return summaries;
   }, []);
 
   const openFile = useCallback(
-    async (path: string) => {
-      const projectId = projectIdRef.current;
-      if (!projectId) return;
-      const file = await readProjectFile(projectId, path);
-      activePathRef.current = file.path;
-      setActivePath(file.path);
-      setCode(file.content);
+    (path: string) => {
+      if (!fileContentsRef.current.has(path)) {
+        setStatus({ kind: "err", text: "文件内容未加载", meta: path });
+        return;
+      }
+      activePathRef.current = path;
+      setActivePath(path);
+      setCode(fileContentsRef.current.get(path) ?? "");
+      dirtyRef.current = false;
       setDirty(false);
     },
-    [readProjectFile]
+    []
   );
 
   const loadFiles = useCallback(
     async (projectId = projectIdRef.current, preferredPath?: string) => {
       if (!projectId) return [];
-      const response = await req<FilesResponse>("GET", `/api/projects/${projectId}/files`);
-      const nextFiles = response.files;
-      setFiles(nextFiles);
+      const nextFiles = await loadProjectFileContents(projectId);
 
       const nextPath = chooseFile(nextFiles, preferredPath ?? activePathRef.current);
       if (nextPath) {
-        try {
-          await openFile(nextPath);
-        } catch (error) {
-          activePathRef.current = undefined;
-          setActivePath(undefined);
-          setCode("");
-          setDirty(false);
-          setStatus({
-            kind: "err",
-            text: "文件读取失败",
-            meta: error instanceof Error ? error.message : String(error),
-          });
-        }
+        openFile(nextPath);
       } else {
         activePathRef.current = undefined;
         setActivePath(undefined);
         setCode("");
+        dirtyRef.current = false;
         setDirty(false);
       }
       return nextFiles;
     },
-    [openFile]
+    [loadProjectFileContents, openFile]
   );
 
   const readProjectFiles = useCallback(
     async (projectId: string): Promise<TranspileProjectFile[]> => {
-      const response = await req<FilesResponse>("GET", `/api/projects/${projectId}/files`);
-      return Promise.all(
-        response.files.map(async (file) => {
-          const content = await readProjectFile(projectId, file.path);
-          return { path: content.path, content: content.content };
-        })
-      );
+      if (fileContentsRef.current.size === 0) {
+        await loadProjectFileContents(projectId);
+      }
+      return [...fileContentsRef.current.entries()].map(([path, content]) => ({ path, content }));
     },
-    [readProjectFile]
+    [loadProjectFileContents]
+  );
+
+  const syncFileChange = useCallback(
+    async (ev: Extract<ChatEvent, { type: typeof ChatEventType.FilesChanged }>) => {
+      const projectId = projectIdRef.current;
+      if (!projectId || !ev.path || !ev.operation) return;
+
+      const nextFiles = await loadProjectFileContents(projectId);
+
+      if (ev.operation === "delete") {
+        const nextPath = chooseFile(nextFiles, APP_ENTRY_PATH);
+        if (nextPath) openFile(nextPath);
+        else {
+          activePathRef.current = undefined;
+          setActivePath(undefined);
+          setCode("");
+          setDirty(false);
+          dirtyRef.current = false;
+        }
+        return;
+      }
+
+      openFile(ev.path);
+    },
+    [loadProjectFileContents, openFile]
   );
 
   const runPreview = useCallback(
@@ -235,7 +256,7 @@ export function useChat() {
           return false;
         }
         const t0 = performance.now();
-        const result = await withTimeout(sandbox.run(compiled), RESTORE_TIMEOUT_MS);
+        const result = await sandbox.run(compiled);
         const dur = Math.round(performance.now() - t0);
 
         if (result?.type === ToolResultType.RenderOk) {
@@ -375,7 +396,13 @@ export function useChat() {
             }
           } else if (ev.type === ChatEventType.FilesChanged) {
             filesChanged = true;
-            setStatus({ kind: "load", text: "文件已更新，刷新预览…" });
+            if (ev.path && ev.operation) {
+              appendFileChange({ operation: ev.operation, path: ev.path, oldPath: ev.oldPath });
+              setStatus({ kind: "load", text: `AI 已更新 ${ev.path}` });
+              await syncFileChange(ev);
+            } else {
+              setStatus({ kind: "load", text: "文件已更新，刷新预览…" });
+            }
           } else if (ev.type === ChatEventType.Chat) {
             updateAi((m) => ({ ...m, chatText: (m.chatText ?? "") + ev.delta }));
           } else if (ev.type === ChatEventType.Title) {
@@ -408,7 +435,7 @@ export function useChat() {
       }
       setBusy(false);
     },
-    [refreshAfterFilesChanged, updateAi]
+    [appendFileChange, refreshAfterFilesChanged, syncFileChange, updateAi]
   );
 
   const send = useCallback(
@@ -437,7 +464,7 @@ export function useChat() {
             previewUrl: attachment.previewUrl,
           })),
         },
-        { id: aiId, role: "ai", attempts: [] },
+        { id: aiId, role: "ai", attempts: [], fileChanges: [] },
       ]);
       setBusy(true);
       setOverlay(EMPTY_OVERLAY);
@@ -455,6 +482,7 @@ export function useChat() {
 
   const updateCode = useCallback((value: string) => {
     setCode(value);
+    dirtyRef.current = true;
     setDirty(true);
   }, []);
 
@@ -469,6 +497,8 @@ export function useChat() {
         path,
         content: code,
       });
+      fileContentsRef.current.set(path, code);
+      dirtyRef.current = false;
       setDirty(false);
       await loadFiles(projectId, path);
       await runPreview(projectId);

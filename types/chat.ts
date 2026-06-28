@@ -32,6 +32,15 @@ export const ChatEventType = {
 
 export type ChatEventType = typeof ChatEventType[keyof typeof ChatEventType];
 
+export const FileChangeOperation = {
+  Write: "write",
+  Delete: "delete",
+  Rename: "rename",
+} as const;
+
+export type FileChangeOperation =
+  typeof FileChangeOperation[keyof typeof FileChangeOperation];
+
 export type ChatEvent =
   | { type: typeof ChatEventType.Init; conversationId: string; projectId: string }
   // 旧前端仍会处理 code；新后端不再发送，等前端切到 files/tool events 后删除。
@@ -39,7 +48,12 @@ export type ChatEvent =
   | { type: typeof ChatEventType.Chat; delta: string }
   | { type: typeof ChatEventType.ToolsCall; index: number; name: ToolName | string; id: string }
   | { type: typeof ChatEventType.ToolResult; name: ToolName | string; status: "ok" | "error" }
-  | { type: typeof ChatEventType.FilesChanged }
+  | {
+      type: typeof ChatEventType.FilesChanged;
+      operation?: FileChangeOperation;
+      path?: string;
+      oldPath?: string;
+    }
   | {
       type: typeof ChatEventType.Title;
       conversationId: string;

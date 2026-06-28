@@ -13,10 +13,11 @@ import { getOwnedConversationProjectId, ownsConversation, ownsProject } from "@/
 import { appendMessage, listMessages } from "@/server/messages";
 import { attachToConversation, AttachmentError } from "@/server/attachments";
 import { closeInterruptedToolCall } from "@/server/toolCalls";
-import { updateGeneratedTitles } from "@/server/titles";
+import { makeInitialTitle, updateGeneratedTitlesFromUserMessage } from "@/server/titles";
 import { executeToolCall, type ToolExecutionContext } from "@/server/tools/executor";
 import { AGENT_MODEL } from "@/server/models";
 import { ChatEventType, ChatTurnSchema, type ChatEvent, type ChatTurn } from "@/types/chat";
+import { FileChangeOperation } from "@/types/chat";
 import type { AttachmentSummary } from "@/types/attachment";
 import { ToolName, type ToolCallMeta } from "@/types/tool";
 
@@ -105,6 +106,28 @@ function toolChangesFiles(name: string) {
   return FILE_MUTATION_TOOLS.includes(name as (typeof FILE_MUTATION_TOOLS)[number]);
 }
 
+function fileChangedEvent(
+  result: Awaited<ReturnType<typeof executeToolCall>>,
+): Extract<ChatEvent, { type: typeof ChatEventType.FilesChanged }> | null {
+  if (result.status !== "ok") return null;
+
+  if (result.tool === ToolName.WriteFile) {
+    return { type: ChatEventType.FilesChanged, operation: FileChangeOperation.Write, path: result.path };
+  }
+  if (result.tool === ToolName.DeleteFile) {
+    return { type: ChatEventType.FilesChanged, operation: FileChangeOperation.Delete, path: result.path };
+  }
+  if (result.tool === ToolName.RenameFile) {
+    return {
+      type: ChatEventType.FilesChanged,
+      operation: FileChangeOperation.Rename,
+      path: result.newPath,
+      oldPath: result.oldPath,
+    };
+  }
+  return null;
+}
+
 async function runAgentLoop({
   ownerId,
   conversationId,
@@ -121,6 +144,18 @@ async function runAgentLoop({
   send: (event: ChatEvent) => void;
 }) {
   if (created) send({ type: ChatEventType.Init, conversationId, projectId });
+  if (userMessage) {
+    try {
+      const titleUpdate = await updateGeneratedTitlesFromUserMessage({
+        conversationId,
+        projectId,
+        userMessage,
+      });
+      if (titleUpdate) send({ type: ChatEventType.Title, conversationId, ...titleUpdate });
+    } catch (titleError) {
+      console.warn("Failed to generate chat title", titleError);
+    }
+  }
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     let rows = await listMessages(conversationId);
@@ -138,19 +173,6 @@ async function runAgentLoop({
           model: AGENT_MODEL,
           meta: { kind: "reply" },
         });
-        if (userMessage) {
-          try {
-            const titleUpdate = await updateGeneratedTitles({
-              conversationId,
-              projectId,
-              userMessage,
-              assistantContent: assistant.text,
-            });
-            if (titleUpdate) send({ type: ChatEventType.Title, conversationId, ...titleUpdate });
-          } catch (titleError) {
-            console.warn("Failed to generate chat title", titleError);
-          }
-        }
       }
       send({ type: ChatEventType.Done });
       return;
@@ -180,7 +202,7 @@ async function runAgentLoop({
       send({ type: ChatEventType.ToolResult, name: toolCall.name, status: result.status });
 
       if (toolChangesFiles(toolCall.name)) {
-        send({ type: ChatEventType.FilesChanged });
+        send(fileChangedEvent(result) ?? { type: ChatEventType.FilesChanged });
       }
 
       if (result.status === "ok" && result.tool === ToolName.Reply) {
@@ -245,6 +267,7 @@ export async function POST(req: Request) {
 
   let { conversationId, projectId } = body;
   const created = !conversationId;
+  const initialTitle = makeInitialTitle(body.message);
 
   if (conversationId) {
     if (!(await ownsConversation(conversationId, ownerId))) {
@@ -259,10 +282,10 @@ export async function POST(req: Request) {
         return new Response("Not Found", { status: 404 });
       }
     } else {
-      const [project] = await db.insert(projects).values({ ownerId, title: "untitled" }).returning();
+      const [project] = await db.insert(projects).values({ ownerId, title: initialTitle }).returning();
       projectId = project.id;
     }
-    const [conversation] = await db.insert(conversations).values({ projectId, title: "untitled" }).returning();
+    const [conversation] = await db.insert(conversations).values({ projectId, title: initialTitle }).returning();
     conversationId = conversation.id;
   }
 

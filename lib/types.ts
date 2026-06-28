@@ -16,6 +16,13 @@ export interface Attempt {
   note?: string;
 }
 
+export type AgentFileChange = {
+  id: string;
+  operation: "write" | "delete" | "rename";
+  path: string;
+  oldPath?: string;
+};
+
 export type UserMessageAttachment = AttachmentSummary & {
   name?: string;
   previewUrl?: string;
@@ -40,6 +47,7 @@ export type Message =
       summaryKind?: "ok" | "fail";
       diff?: string;
       chatText?: string; // AI 直接回话/提问（reply），非写代码时显示
+      fileChanges?: AgentFileChange[];
     };
 
 export interface Status {

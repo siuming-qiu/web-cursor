@@ -2,6 +2,7 @@
 
 import Spinner from "./Spinner";
 import MarkdownMessage from "./MarkdownMessage";
+import type { AgentFileChange } from "@/lib/types";
 import { PHASE_LABEL, type Message } from "@/lib/types";
 
 type AiMsg = Extract<Message, { role: "ai" }>;
@@ -12,6 +13,12 @@ function numClass(ok: boolean, failed: boolean, active: boolean) {
   if (failed) return base + "bg-red text-white";
   if (active) return base + "bg-yellow text-[#04101f]";
   return base + "bg-[#30363d] text-fg";
+}
+
+function changeLabel(change: AgentFileChange) {
+  if (change.operation === "delete") return "删除";
+  if (change.operation === "rename") return "重命名";
+  return "写入";
 }
 
 export default function AiBubble({ m, busy }: { m: AiMsg; busy: boolean }) {
@@ -29,11 +36,32 @@ export default function AiBubble({ m, busy }: { m: AiMsg; busy: boolean }) {
         </div>
       )}
 
-      {m.attempts.length === 0 && busy && !m.chatText && (
+      {m.attempts.length === 0 && busy && !m.chatText && !m.fileChanges?.length && (
         <span>
           <Spinner /> 正在生成…
         </span>
       )}
+
+      {m.fileChanges?.length ? (
+        <div className="mt-[9px] overflow-hidden rounded-[10px] border border-border bg-[#12161d]">
+          {m.fileChanges.map((change) => (
+            <div
+              key={change.id}
+              className="flex min-w-0 items-center gap-2 border-t border-border px-[11px] py-2 text-[12.5px] first:border-t-0"
+            >
+              <span className="h-1.5 w-1.5 flex-none rounded-full bg-accent" />
+              <span className="flex-none text-muted">{changeLabel(change)}</span>
+              {change.operation === "rename" && change.oldPath ? (
+                <span className="min-w-0 truncate font-mono text-[12px] text-fg">
+                  {change.oldPath} → {change.path}
+                </span>
+              ) : (
+                <span className="min-w-0 truncate font-mono text-[12px] text-fg">{change.path}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {hasHeal && (
         <div className="mt-[9px] rounded-[10px] border border-border overflow-hidden bg-[#12161d]">

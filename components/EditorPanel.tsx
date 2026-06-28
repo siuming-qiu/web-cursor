@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useMemo } from "react";
 import Spinner from "./Spinner";
 import type { ProjectFileSummary } from "@/lib/projectTypes";
 
@@ -65,7 +66,7 @@ export default function EditorPanel({
   onRenameFile: () => void;
   onDeleteFile: () => void;
 }) {
-  const groups = groupFiles(files);
+  const groups = useMemo(() => groupFiles(files), [files]);
   const canEdit = !!activePath;
 
   return (
