@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 用户 prompt、项目/会话恢复请求、项目文件 REST API
- * [OUTPUT]: 会话 UI 状态、项目文件状态、手动编辑动作、App.tsx 预览状态
+ * [OUTPUT]: 会话 UI 状态、项目文件状态、手动编辑动作、src/App.tsx 预览状态
  * [POS]: B 域编排 hook —— 串起 /api/chat SSE、项目文件接口、Monaco 编辑器和 iframe 沙箱
  * [PROTOCOL]: 当前代码事实源是 project_files；收到 files_changed 后重新读取文件，不再依赖 code SSE。
  */
@@ -12,7 +12,7 @@ import { buildExportHtml } from "@/lib/export";
 import { SandboxController } from "@/lib/sandbox/controller";
 import { compileProject, TranspileError, type TranspileProjectFile } from "@/lib/transpile";
 import { streamChat } from "@/lib/chatClient";
-import type { Message, Status, Overlay } from "@/lib/types";
+import type { Message, SendAttachment, Status, Overlay } from "@/lib/types";
 import type { ChatTurn } from "@/types/chat";
 import { ChatEventType } from "@/types/chat";
 import { ToolName } from "@/types/tool";
@@ -23,7 +23,8 @@ import {
   type ProjectFileSummary,
 } from "@/lib/projectTypes";
 
-const APP_ENTRY_PATH = "App.tsx";
+const APP_ENTRY_PATH = "src/App.tsx";
+const REQUIRED_PROJECT_FILES = ["package.json", "index.html", "src/main.tsx", APP_ENTRY_PATH] as const;
 const EMPTY_OVERLAY: Overlay = { show: false, message: "", stack: "", showStack: false };
 const RESTORE_TIMEOUT_MS = 3000;
 
@@ -64,12 +65,18 @@ function chooseFile(files: ProjectFileSummary[], preferredPath?: string) {
   return files[0]?.path;
 }
 
+function hasCompleteReactProject(files: Pick<ProjectFileSummary, "path">[]) {
+  const paths = new Set(files.map((file) => file.path));
+  return REQUIRED_PROJECT_FILES.every((path) => paths.has(path));
+}
+
 export function useChat() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const sandboxRef = useRef<SandboxController | null>(null);
   const abortRef = useRef({ aborted: false });
   const curAiIdRef = useRef<string>("");
   const lastPromptRef = useRef<string>("");
+  const lastAttachmentsRef = useRef<SendAttachment[]>([]);
   const projectIdRef = useRef<string | undefined>(undefined);
   const convIdRef = useRef<string | undefined>(undefined);
   const activePathRef = useRef<string | undefined>(undefined);
@@ -209,6 +216,14 @@ export function useChat() {
         return false;
       }
 
+      if (!hasCompleteReactProject(projectFiles)) {
+        setPreviewActive(false);
+        setHasResult(false);
+        setOverlay(EMPTY_OVERLAY);
+        setStatus({ kind: "", text: "生成完整 React 项目后可预览" });
+        return false;
+      }
+
       setPreviewActive(true);
       setStatus({ kind: "load", text: "编译项目中…（esbuild-wasm）" });
       try {
@@ -268,7 +283,10 @@ export function useChat() {
     setHasResult(false);
     setPreviewActive(false);
     setOverlay(EMPTY_OVERLAY);
-    setStatus({ kind: "", text: "选择会话或继续输入" });
+    setStatus({
+      kind: "",
+      text: hasCompleteReactProject(project.files ?? []) ? "选择会话或继续输入" : "生成完整 React 项目后可预览",
+    });
   }, []);
 
   const openConversation = useCallback(
@@ -296,8 +314,14 @@ export function useChat() {
 
       setMessages(restored);
       try {
-        await loadFiles(project.id, APP_ENTRY_PATH);
-        await runPreview(project.id);
+        const loadedFiles = await loadFiles(project.id, APP_ENTRY_PATH);
+        if (hasCompleteReactProject(loadedFiles)) {
+          await runPreview(project.id);
+        } else {
+          setPreviewActive(false);
+          setHasResult(false);
+          setStatus({ kind: "", text: "生成完整 React 项目后可预览" });
+        }
       } catch (error) {
         setStatus({
           kind: "err",
@@ -317,12 +341,13 @@ export function useChat() {
   }, [loadFiles, runPreview]);
 
   const runLoop = useCallback(
-    async (firstMessage: string) => {
+    async (firstMessage: string, attachments: SendAttachment[] = []) => {
       const turn: ChatTurn = {
         kind: "user",
         message: firstMessage,
         projectId: projectIdRef.current,
         conversationId: convIdRef.current,
+        attachments: attachments.map((attachment) => ({ id: attachment.id })),
       };
       let filesChanged = false;
 
@@ -387,24 +412,38 @@ export function useChat() {
   );
 
   const send = useCallback(
-    (prompt: string) => {
-      if (busy || !prompt.trim() || !ensureSandbox()) return;
+    (prompt: string, attachments: SendAttachment[] = []) => {
       const p = prompt.trim();
-      lastPromptRef.current = p;
+      if (busy || (!p && attachments.length === 0) || !ensureSandbox()) return;
+      const messageText = p || "请查看附件。";
+      lastPromptRef.current = messageText;
+      lastAttachmentsRef.current = attachments;
 
       const userId = crypto.randomUUID();
       const aiId = crypto.randomUUID();
       curAiIdRef.current = aiId;
       setMessages((prev) => [
         ...prev,
-        { id: userId, role: "user", text: p },
+        {
+          id: userId,
+          role: "user",
+          text: messageText,
+          attachments: attachments.map((attachment) => ({
+            id: attachment.id,
+            type: attachment.type,
+            mimeType: attachment.mimeType,
+            sizeBytes: attachment.sizeBytes,
+            name: attachment.name,
+            previewUrl: attachment.previewUrl,
+          })),
+        },
         { id: aiId, role: "ai", attempts: [] },
       ]);
       setBusy(true);
       setOverlay(EMPTY_OVERLAY);
       abortRef.current = { aborted: false };
 
-      runLoop(p).catch((err) => {
+      runLoop(messageText, attachments).catch((err) => {
         setBusy(false);
         setWriting(false);
         setStatus({ kind: "err", text: "内部错误", meta: "" });
@@ -444,7 +483,7 @@ export function useChat() {
       window.alert("请先发送一次需求创建项目，再新建文件。");
       return;
     }
-    const path = window.prompt("输入项目内文件路径，例如 components/Button.tsx");
+    const path = window.prompt("输入项目内文件路径，例如 src/components/Button.tsx");
     if (!path) return;
     setSaving(true);
     try {
@@ -507,7 +546,7 @@ export function useChat() {
   }, []);
 
   const rerun = useCallback(() => {
-    if (lastPromptRef.current) send(lastPromptRef.current);
+    if (lastPromptRef.current) send(lastPromptRef.current, lastAttachmentsRef.current);
   }, [send]);
 
   return {

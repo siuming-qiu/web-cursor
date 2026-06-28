@@ -8,13 +8,16 @@
 import { toLLMMessages } from "@/server/context";
 import { db } from "@/server/db";
 import { conversations, projects } from "@/server/db/schema";
-import deepseekClient, { SYSTEM_PROMPT, tools } from "@/server/deepseek";
+import llmClient, { SYSTEM_PROMPT, tools } from "@/server/llm";
 import { getOwnedConversationProjectId, ownsConversation, ownsProject } from "@/server/guard";
 import { appendMessage, listMessages } from "@/server/messages";
+import { attachToConversation, AttachmentError } from "@/server/attachments";
 import { closeInterruptedToolCall } from "@/server/toolCalls";
 import { updateGeneratedTitles } from "@/server/titles";
 import { executeToolCall, type ToolExecutionContext } from "@/server/tools/executor";
+import { AGENT_MODEL } from "@/server/models";
 import { ChatEventType, ChatTurnSchema, type ChatEvent, type ChatTurn } from "@/types/chat";
+import type { AttachmentSummary } from "@/types/attachment";
 import { ToolName, type ToolCallMeta } from "@/types/tool";
 
 export const runtime = "nodejs";
@@ -23,7 +26,6 @@ export const dynamic = "force-dynamic";
 type DbMessage = Awaited<ReturnType<typeof listMessages>>[number];
 
 const MAX_TOOL_ROUNDS = 8;
-const MODEL = "deepseek-v4-pro";
 
 function sseResponse(stream: ReadableStream<Uint8Array>) {
   return new Response(stream, {
@@ -39,9 +41,9 @@ function assistantMessages(rows: DbMessage[]) {
 }
 
 async function requestAssistant(rows: DbMessage[]) {
-  return deepseekClient.chat.completions.create({
+  return llmClient.chat.completions.create({
     messages: assistantMessages(rows),
-    model: MODEL,
+    model: AGENT_MODEL,
     tools,
     stream: true,
   });
@@ -132,7 +134,7 @@ async function runAgentLoop({
         await appendMessage(conversationId, {
           role: "assistant",
           content: assistant.text,
-          model: MODEL,
+          model: AGENT_MODEL,
           meta: { kind: "reply" },
         });
         if (userMessage) {
@@ -156,7 +158,7 @@ async function runAgentLoop({
     await appendMessage(conversationId, {
       role: "assistant",
       content: assistant.text,
-      model: MODEL,
+      model: AGENT_MODEL,
       meta: { toolCalls: assistant.toolCalls },
     });
 
@@ -185,7 +187,7 @@ async function runAgentLoop({
         await appendMessage(conversationId, {
           role: "assistant",
           content: result.message,
-          model: MODEL,
+          model: AGENT_MODEL,
           meta: { kind: "reply" },
         });
         send({ type: ChatEventType.Done });
@@ -263,9 +265,23 @@ export async function POST(req: Request) {
     conversationId = conversation.id;
   }
 
+  let attachments: AttachmentSummary[] | undefined;
+  const attachmentIds = body.attachments?.map((attachment) => attachment.id) ?? [];
+  if (attachmentIds.length) {
+    try {
+      attachments = await attachToConversation({ ownerId, conversationId, projectId, attachmentIds });
+    } catch (error) {
+      if (error instanceof AttachmentError) {
+        return Response.json({ error: error.message, code: error.code }, { status: 400 });
+      }
+      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    }
+  }
+
   await appendMessage(conversationId, {
     role: "user",
     content: body.message,
+    meta: attachments?.length ? { attachments } : undefined,
   });
 
   return streamAgent({ conversationId, projectId, ownerId, created, userMessage: body.message });

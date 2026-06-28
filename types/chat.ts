@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ChatAttachmentRefSchema } from "./attachment";
 import type { ToolName } from "./tool";
 
 export const ChatTurnSchema = z.discriminatedUnion("kind", [
@@ -7,6 +8,7 @@ export const ChatTurnSchema = z.discriminatedUnion("kind", [
     message: z.string().min(1),
     projectId: z.string().uuid().optional(),
     conversationId: z.string().uuid().optional(),
+    attachments: z.array(ChatAttachmentRefSchema).max(4).optional(),
   }),
   z.object({
     kind: z.literal("resume"),

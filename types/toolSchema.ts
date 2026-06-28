@@ -21,6 +21,10 @@ export const RenameFileArgsSchema = z.object({
   newPath: z.string().min(1),
 }).strict();
 
+export const InspectAttachmentArgsSchema = z.object({
+  attachmentId: z.string().uuid(),
+}).strict();
+
 export const ReplyArgsSchema = z.object({
   message: z.string().min(1),
 }).strict();

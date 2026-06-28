@@ -14,6 +14,7 @@
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@neondatabase/serverless": "^1.1.0",
+    "@vercel/blob": "^2.5.0",
     "@vercel/functions": "^3.7.2",
     "drizzle-orm": "^0.45.2",
     "esbuild-wasm": "0.23.1",

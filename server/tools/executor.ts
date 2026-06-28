@@ -6,6 +6,7 @@
  */
 import "server-only";
 import { z } from "zod";
+import { inspectAttachment, AttachmentError, AttachmentErrorCode } from "@/server/attachments";
 import {
   deleteProjectFile,
   FileOperationError,
@@ -17,6 +18,7 @@ import {
 } from "@/server/files";
 import {
   DeleteFileArgsSchema,
+  InspectAttachmentArgsSchema,
   ListFilesArgsSchema,
   ReadFileArgsSchema,
   RenameFileArgsSchema,
@@ -36,6 +38,7 @@ export const ToolExecutionErrorCode = {
   BadPath: FileOperationErrorCode.BadPath,
   NotFound: FileOperationErrorCode.NotFound,
   Conflict: FileOperationErrorCode.Conflict,
+  Unsupported: AttachmentErrorCode.Unsupported,
   InternalError: FileOperationErrorCode.InternalError,
 } as const;
 
@@ -48,6 +51,14 @@ export type ToolExecutionResult =
   | { status: "ok"; tool: typeof ToolName.WriteFile; path: string; updatedAt?: string }
   | { status: "ok"; tool: typeof ToolName.DeleteFile; path: string }
   | { status: "ok"; tool: typeof ToolName.RenameFile; oldPath: string; newPath: string; updatedAt?: string }
+  | {
+      status: "ok";
+      tool: typeof ToolName.InspectAttachment;
+      attachmentId: string;
+      attachmentType: "image";
+      mimeType: string;
+      observations: string;
+    }
   | { status: "ok"; tool: typeof ToolName.Reply; message: string }
   | {
       status: "error";
@@ -103,6 +114,15 @@ export async function executeToolCall(
         const file = await renameProjectFile(ctx.projectId, args.oldPath, args.newPath);
         return { status: "ok", tool, oldPath: args.oldPath, newPath: file.path, updatedAt: file.updatedAt };
       }
+      case ToolName.InspectAttachment: {
+        const args = InspectAttachmentArgsSchema.parse(parseArgs(toolCall.arguments));
+        const result = await inspectAttachment({
+          ownerId: ctx.ownerId,
+          conversationId: ctx.conversationId,
+          attachmentId: args.attachmentId,
+        });
+        return { status: "ok", tool, ...result };
+      }
       case ToolName.Reply: {
         const args = ReplyArgsSchema.parse(parseArgs(toolCall.arguments));
         return { status: "ok", tool, message: args.message };
@@ -114,6 +134,13 @@ export async function executeToolCall(
     }
     if (error instanceof FileOperationError) {
       return errorResult(tool, error.code, error.message);
+    }
+    if (error instanceof AttachmentError) {
+      return errorResult(
+        tool,
+        error.code === AttachmentErrorCode.Unsupported ? ToolExecutionErrorCode.Unsupported : ToolExecutionErrorCode.InternalError,
+        error.message,
+      );
     }
     return errorResult(tool, ToolExecutionErrorCode.InternalError, error instanceof Error ? error.message : String(error));
   }

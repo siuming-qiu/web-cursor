@@ -8,18 +8,33 @@
 import "server-only";
 import type OpenAI from "openai";
 import type { messages } from "./db/schema";
+import type { AttachmentSummary } from "@/types/attachment";
 import type { ToolCallMeta } from "@/types/tool";
 
 type DbMessage = typeof messages.$inferSelect;        // drizzle 自动推断的行类型
 type LLMMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
-type Meta = { toolCalls?: ToolCallMeta[]; toolCallId?: string };
+type Meta = { toolCalls?: ToolCallMeta[]; toolCallId?: string; attachments?: AttachmentSummary[] };
+
+function userContent(content: string, attachments: AttachmentSummary[] | undefined): string {
+  if (!attachments?.length) return content;
+
+  const lines = attachments.map((attachment) =>
+    `- attachmentId=${attachment.id}; type=${attachment.type}; mimeType=${attachment.mimeType}; sizeBytes=${attachment.sizeBytes}`
+  );
+  return [
+    content,
+    "",
+    "用户本轮附带了以下附件。需要读取附件内容时，必须调用 inspect_attachment，并只能使用这里列出的 attachmentId：",
+    ...lines,
+  ].join("\n");
+}
 
 /** DB transcript → DeepSeek messages（function-calling 成对还原）。 */
 export function toLLMMessages(rows: DbMessage[]): LLMMessage[] {
   return rows.flatMap((m): LLMMessage[] => {
     const meta = (m.meta ?? {}) as Meta;
 
-    if (m.role === "user") return [{ role: "user", content: m.content }];
+    if (m.role === "user") return [{ role: "user", content: userContent(m.content, meta.attachments) }];
 
     if (m.role === "assistant") {
       if (meta.toolCalls?.length) {

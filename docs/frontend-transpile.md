@@ -10,10 +10,10 @@
 回顾三执行域。转译发生在 **B 域（浏览器主线程 / Worker）**，夹在"AI 出代码"和"沙箱跑代码"之间：
 
 ```
-AI 生成 JSX/TS 源码（字符串）
+AI 生成完整 Vite React 项目文件
       │
-      ▼  ① 转译层：esbuild-wasm   JSX/TS ──→ 浏览器能跑的 JS
-      │     （只转语法，不打包，不执行）
+      ▼  ① 转译层：esbuild-wasm   index.html + src/main.tsx + 本地依赖 ──→ 浏览器能跑的 JS/CSS
+      │     （解析本地 import 并打包，不执行）
       ▼
 注入 C 域 iframe 沙箱执行（importmap + esm.sh 解析 import）
       │
@@ -40,18 +40,19 @@ AI 生成 JSX/TS 源码（字符串）
 
 ---
 
-## 2. 核心 API：只用 `transform`，不用 `bundle`
+## 2. 核心 API：多文件项目使用 `build/bundle`
 
-esbuild 有两个能力：`transform`（转单文件语法）和 `build/bundle`（解析依赖、打包）。**我们只要 `transform`**：
+esbuild 有两个能力：`transform`（转单文件语法）和 `build/bundle`（解析依赖、打包）。当前项目文件已经是完整 Vite React 项目，预览入口由 `index.html` 中的 module script 声明，所以项目预览使用 `build`：
 
-- 一期是**单文件** React，没有本地多文件依赖要打包。
-- 第三方依赖（react 等）靠 **iframe 里的 importmap + esm.sh** 解析——`import React from 'react'` 这行**原样保留**，交给浏览器在沙箱里去 esm.sh 取。
-- 所以转译层的职责极窄：把 JSX/TS 语法转掉，import 语句原样留着。
+- 本地相对 import 从 project_files 中解析并打包。
+- 第三方依赖根据 `package.json` 映射到 esm.sh external URL。
+- 缺少 `index.html` 或 module script 时由预览层报明确编译错误，不自动补文件。
+- `src/main.tsx` 通常负责挂载 `src/App.tsx` 到 `#root`。
 
 ```ts
-// transform 的输入输出
-输入: "export default function App(){ return <h1>hi</h1> }"   // JSX 源码
-输出: "export default function App(){ return jsx('h1',{children:'hi'}) }"  // 纯 JS，import 不动
+// build 的输入输出
+输入: ["index.html", "src/main.tsx", "src/App.tsx", "package.json"]
+输出: { entryPath: "src/main.tsx", js: "...", css: "..." }
 ```
 
 ---

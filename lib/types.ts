@@ -1,5 +1,7 @@
 /** agent 运行过程在 UI 上的状态模型，组件与 useChat 共享。 */
 
+import type { AttachmentSummary } from "@/types/attachment";
+
 export type Phase =
   | "writing"
   | "transpiling"
@@ -14,8 +16,22 @@ export interface Attempt {
   note?: string;
 }
 
+export type UserMessageAttachment = AttachmentSummary & {
+  name?: string;
+  previewUrl?: string;
+};
+
+export type SendAttachment = {
+  id: string;
+  name: string;
+  type: "image";
+  mimeType: UserMessageAttachment["mimeType"];
+  sizeBytes: number;
+  previewUrl: string;
+};
+
 export type Message =
-  | { id: string; role: "user"; text: string }
+  | { id: string; role: "user"; text: string; attachments?: UserMessageAttachment[] }
   | {
       id: string;
       role: "ai";

@@ -19,6 +19,13 @@ import PreviewPanel from "@/components/PreviewPanel";
 import ExportModal from "@/components/ExportModal";
 import Toast from "@/components/Toast";
 
+const REQUIRED_PROJECT_FILES = ["package.json", "index.html", "src/main.tsx", "src/App.tsx"] as const;
+
+function hasCompleteReactProject(files: { path: string }[]) {
+  const paths = new Set(files.map((file) => file.path));
+  return REQUIRED_PROJECT_FILES.every((path) => paths.has(path));
+}
+
 function WorkbenchSkeleton() {
   return (
     <main className="flex-1 flex min-h-0">
@@ -84,7 +91,7 @@ export default function Workbench({ projectId }: { projectId?: string }) {
   const [projectDetail, setProjectDetail] = useState<ProjectDetail | null>(null);
   const [loadingProject, setLoadingProject] = useState(!!projectId);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<WorkbenchViewMode>("preview");
+  const [viewMode, setViewMode] = useState<WorkbenchViewMode>("code");
   const initialConversationIdRef = useRef<string | null>(null);
   const initialPreviewProjectIdRef = useRef<string | null>(null);
 
@@ -101,8 +108,10 @@ export default function Workbench({ projectId }: { projectId?: string }) {
       setProjectDetail(detail);
       openProject({ id: detail.id, title: detail.title, files: detail.files });
       await loadFiles(detail.id);
-      initialConversationIdRef.current = detail.conversations[0]?.id ?? null;
-      initialPreviewProjectIdRef.current = detail.id;
+      const initialConversationId = detail.conversations[0]?.id ?? null;
+      initialConversationIdRef.current = initialConversationId;
+      initialPreviewProjectIdRef.current =
+        !initialConversationId && hasCompleteReactProject(detail.files) ? detail.id : null;
     } catch (e) {
       showToast(String(e instanceof Error ? e.message : e));
     } finally {
@@ -162,6 +171,7 @@ export default function Workbench({ projectId }: { projectId?: string }) {
 
   const newConversation = useCallback(() => {
     if (!projectDetail) return;
+    setViewMode("code");
     openProject({ id: projectDetail.id, title: projectDetail.title, files: projectDetail.files });
   }, [openProject, projectDetail]);
 
@@ -254,6 +264,7 @@ export default function Workbench({ projectId }: { projectId?: string }) {
                   messages={s.messages}
                   busy={s.busy}
                   curAiId={s.curAiId.current}
+                  projectId={s.currentProjectId}
                   onSend={s.send}
                   onStop={s.stop}
                 />
@@ -265,6 +276,7 @@ export default function Workbench({ projectId }: { projectId?: string }) {
                 messages={s.messages}
                 busy={s.busy}
                 curAiId={s.curAiId.current}
+                projectId={s.currentProjectId}
                 onSend={s.send}
                 onStop={s.stop}
               />

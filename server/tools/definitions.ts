@@ -26,7 +26,7 @@ export const toolDefinitions = [
       properties: {
         path: {
           type: "string",
-          description: "项目内文件路径，例如 App.tsx 或 components/Button.tsx",
+          description: "项目内文件路径，例如 src/App.tsx 或 src/components/Button.tsx",
         },
       },
       required: ["path"],
@@ -41,7 +41,7 @@ export const toolDefinitions = [
       properties: {
         path: {
           type: "string",
-          description: "项目内文件路径，例如 App.tsx 或 components/Button.tsx",
+          description: "项目内文件路径，例如 src/App.tsx 或 src/components/Button.tsx",
         },
         content: {
           type: "string",
@@ -75,7 +75,7 @@ export const toolDefinitions = [
       properties: {
         oldPath: {
           type: "string",
-          description: "原项目内文件路径，例如 components/Button.tsx",
+          description: "原项目内文件路径，例如 src/components/Button.tsx",
         },
         newPath: {
           type: "string",
@@ -83,6 +83,22 @@ export const toolDefinitions = [
         },
       },
       required: ["oldPath", "newPath"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: ToolName.InspectAttachment,
+    description:
+      "识别用户在当前会话中上传的附件内容。工具只返回附件中可见事实；后续如何使用由 agent 决定。只能读取后端在上下文中列出的 attachmentId。",
+    parameters: {
+      type: "object",
+      properties: {
+        attachmentId: {
+          type: "string",
+          description: "当前会话可检查的附件 id。必须来自用户消息中列出的 attachmentId。",
+        },
+      },
+      required: ["attachmentId"],
       additionalProperties: false,
     },
   },

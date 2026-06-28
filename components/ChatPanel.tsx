@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import AiBubble from "./AiBubble";
 import Composer from "./Composer";
-import type { Message } from "@/lib/types";
+import type { Message, SendAttachment, UserMessageAttachment } from "@/lib/types";
 
 const QUICK = [
   { label: "一个待办列表", prompt: "做一个待办列表" },
@@ -14,17 +14,50 @@ const QUICK = [
 const chipBase =
   "bg-panel2 border border-border rounded-[9px] px-3 py-[9px] text-[13px] text-fg text-left flex items-center gap-[9px] transition hover:border-accent hover:translate-x-[2px]";
 
+function formatBytes(bytes: number) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function UserAttachments({ attachments }: { attachments: UserMessageAttachment[] }) {
+  return (
+    <div className="mt-2 grid grid-cols-1 gap-2">
+      {attachments.map((attachment) => (
+        <div key={attachment.id} className="flex min-w-0 items-center gap-2 rounded-lg border border-white/10 bg-black/20 p-1.5">
+          {attachment.previewUrl ? (
+            <img
+              src={attachment.previewUrl}
+              alt={attachment.name ?? "图片附件"}
+              className="h-11 w-11 flex-none rounded-md object-cover"
+            />
+          ) : (
+            <div className="flex h-11 w-11 flex-none items-center justify-center rounded-md border border-white/10 text-[11px] text-white/70">
+              IMG
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[11px] leading-4 text-white/90">{attachment.name ?? "图片附件"}</div>
+            <div className="text-[10px] leading-4 text-white/55">{attachment.mimeType} · {formatBytes(attachment.sizeBytes)}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function ChatPanel({
   messages,
   busy,
   curAiId,
+  projectId,
   onSend,
   onStop,
 }: {
   messages: Message[];
   busy: boolean;
   curAiId: string;
-  onSend: (text: string) => void;
+  projectId?: string;
+  onSend: (text: string, attachments?: SendAttachment[]) => void;
   onStop: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -60,6 +93,7 @@ export default function ChatPanel({
               <div className="w-[26px] h-[26px] rounded-[7px] flex-none flex items-center justify-center text-sm bg-bubble">🧑</div>
               <div className="px-3 py-[9px] rounded-[11px] rounded-tr-[3px] leading-[1.6] text-[13.5px] break-words bg-bubble text-white">
                 {m.text}
+                {m.attachments?.length ? <UserAttachments attachments={m.attachments} /> : null}
               </div>
             </div>
           ) : (
@@ -73,7 +107,7 @@ export default function ChatPanel({
         )}
       </div>
 
-      <Composer busy={busy} onSend={onSend} onStop={onStop} />
+      <Composer busy={busy} projectId={projectId} onSend={onSend} onStop={onStop} />
     </div>
   );
 }

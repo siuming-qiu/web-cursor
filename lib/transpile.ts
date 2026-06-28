@@ -4,20 +4,28 @@
  * [POS]: B 域转译层 —— 夹在"出码"和"沙箱执行"之间，纯文本变换、不执行
  * [PROTOCOL]: 换转译器先改这里 + docs/frontend-transpile.md，再看 CLAUDE.md
  *
- * 按正常 Vite React 项目处理：从 index.html 的 module script 读取入口，解析本地 import，收集 CSS。
+ * 按完整 Vite React 项目处理：从 index.html 的 module script 读取入口，解析本地 import，收集 CSS。
  */
 "use client";
 
 import * as esbuild from "esbuild-wasm";
 
-let initPromise: Promise<void> | null = null;
+type EsbuildGlobal = typeof globalThis & {
+  __webCursorEsbuildInitPromise?: Promise<void>;
+};
 
 // 初始化只做一次：多次调用复用同一个 Promise（esbuild 重复 initialize 会抛错）
 function ensureInit(): Promise<void> {
-  if (!initPromise) {
-    initPromise = esbuild.initialize({ wasmURL: "/esbuild.wasm" });
+  const globalState = globalThis as EsbuildGlobal;
+  if (!globalState.__webCursorEsbuildInitPromise) {
+    globalState.__webCursorEsbuildInitPromise = esbuild.initialize({ wasmURL: "/esbuild.wasm" }).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('Cannot call "initialize" more than once')) return;
+      globalState.__webCursorEsbuildInitPromise = undefined;
+      throw error;
+    });
   }
-  return initPromise;
+  return globalState.__webCursorEsbuildInitPromise;
 }
 
 export interface TranspileFailure {
@@ -134,7 +142,7 @@ function entryFromHtml(html: string): string | null {
 function detectEntry(fileMap: Map<string, string>): string {
   const htmlEntry = fileMap.get("index.html");
   if (!htmlEntry) {
-    throw new TranspileError([{ text: "找不到 index.html：React 项目必须通过 index.html 声明入口文件", location: null }]);
+    throw new TranspileError([{ text: "找不到 index.html：完整 React 项目必须通过 index.html 声明入口文件", location: null }]);
   }
 
   const entry = entryFromHtml(htmlEntry);

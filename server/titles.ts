@@ -7,12 +7,12 @@
 import "server-only";
 
 import { eq } from "drizzle-orm";
-import deepseekClient from "@/server/deepseek";
+import llmClient from "@/server/llm";
 import { db } from "@/server/db";
 import { conversations, projects } from "@/server/db/schema";
+import { AGENT_MODEL } from "@/server/models";
 
 const DEFAULT_TITLE = "untitled";
-const TITLE_MODEL = "deepseek-v4-flash";
 const MAX_CONTEXT_CHARS = 2400;
 const MAX_TITLE_CHARS = 40;
 type TitleUpdate = {
@@ -47,8 +47,8 @@ async function generateTurnTitle(userMessage: string, assistantContent: string) 
   if (assistantContext.length <= 80 && /[?？]$/.test(assistantContext)) return "";
 
   const userContext = normalizeContext(userMessage);
-  const response = await deepseekClient.chat.completions.create({
-    model: TITLE_MODEL,
+  const response = await llmClient.chat.completions.create({
+    model: AGENT_MODEL,
     temperature: 0.2,
     max_tokens: 128,
     messages: [

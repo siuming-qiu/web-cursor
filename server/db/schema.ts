@@ -9,7 +9,7 @@
  *   - 四表均软删 deleted_at（null=存活）；所有读 filter isNull(deletedAt)，DELETE=软删
  */
 import {
-  pgTable, uuid, text, timestamp, jsonb, bigint, index, uniqueIndex,
+  pgTable, uuid, text, timestamp, jsonb, bigint, index, uniqueIndex, integer,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -57,3 +57,21 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 }, (t) => ({ convIdx: index("idx_messages_conv").on(t.conversationId, t.seq) }));
+
+export const chatAttachments = pgTable("chat_attachments", {
+  id: uuid("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  mimeType: text("mime_type").notNull(),
+  blobPath: text("blob_path").notNull(),
+  blobUrl: text("blob_url").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  originalName: text("original_name"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => ({
+  ownerIdx: index("idx_chat_attachments_owner").on(t.ownerId, t.createdAt),
+  conversationIdx: index("idx_chat_attachments_conversation").on(t.conversationId),
+}));
