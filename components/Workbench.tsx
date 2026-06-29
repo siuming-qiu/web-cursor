@@ -208,8 +208,12 @@ export default function Workbench({ projectId }: { projectId?: string }) {
   const showHistory = !!projectId;
 
   const rerunPreview = useCallback(() => {
+    const projectId = s.currentProjectId;
+    if (!projectId || s.busy) return;
     setViewMode("preview");
-    requestAnimationFrame(() => s.rerun());
+    requestAnimationFrame(() => {
+      void s.runPreview(projectId);
+    });
   }, [s]);
 
   const openFileInCode = useCallback(
