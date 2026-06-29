@@ -10,10 +10,10 @@ type AiMsg = Extract<Message, { role: "ai" }>;
 
 function numClass(ok: boolean, failed: boolean, active: boolean) {
   const base = "w-[18px] h-[18px] rounded-full flex items-center justify-center text-[11px] flex-none ";
-  if (ok) return base + "bg-green text-[#04101f]";
+  if (ok) return base + "bg-green text-white";
   if (failed) return base + "bg-red text-white";
-  if (active) return base + "bg-yellow text-[#04101f]";
-  return base + "bg-[#30363d] text-fg";
+  if (active) return base + "bg-yellow text-white";
+  return base + "bg-[#2b2a26] text-fg";
 }
 
 function changeLabel(change: AgentFileChange) {
@@ -46,7 +46,7 @@ export default function AiBubble({ m }: { m: AiMsg }) {
       )}
 
       {m.fileChanges?.length ? (
-        <div className="mt-[9px] overflow-hidden rounded-[10px] border border-border bg-[#12161d]">
+        <div className="mt-[9px] overflow-hidden rounded-[10px] border border-border bg-codebg">
           {m.fileChanges.map((change) => (
             <div
               key={change.id}
@@ -67,14 +67,14 @@ export default function AiBubble({ m }: { m: AiMsg }) {
       ) : null}
 
       {busy && (m.fileChanges?.length || m.chatText) && !m.summary && (
-        <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-border bg-[#10151d] px-2.5 py-1.5 text-[12.5px] text-muted">
+        <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-border bg-codebg px-2.5 py-1.5 text-[12.5px] text-muted">
           <Spinner />
           <span>{activityText || "仍在处理…"}</span>
         </div>
       )}
 
       {hasHeal && (
-        <div className="mt-[9px] rounded-[10px] border border-border overflow-hidden bg-[#12161d]">
+        <div className="mt-[9px] rounded-[10px] border border-border overflow-hidden bg-codebg">
           {m.attempts.map((a) => {
             const failed = a.phase === "compile-fail" || a.phase === "runtime-fail";
             const ok = a.phase === "ok";

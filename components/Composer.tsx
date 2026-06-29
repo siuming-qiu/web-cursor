@@ -169,8 +169,8 @@ export default function Composer({
     <div className="flex-none border-t border-border bg-panel p-[10px_14px]">
       <div
         className={
-          "rounded-[22px] border bg-codebg px-3 py-2 shadow-[0_-8px_28px_rgba(0,0,0,0.12)] transition-colors " +
-          (dragActive ? "border-accent bg-[#101a2a]" : "border-border focus-within:border-[#4a90e2]")
+          "rounded-[22px] border bg-codebg px-3 py-2 transition-colors " +
+          (dragActive ? "border-accent bg-[#1b1713]" : "border-border focus-within:border-accent")
         }
         onDragEnter={(e) => {
           e.preventDefault();
@@ -298,7 +298,7 @@ export default function Composer({
             >
               <Paperclip size={17} strokeWidth={2} />
             </button>
-            <span className="truncate text-[11px] text-[#687485]">
+            <span className="truncate text-[11px] text-muted">
               粘贴/拖入图片 · 最多 {MAX_ATTACHMENTS} 张 · 单张 5MB
             </span>
           </div>
@@ -315,7 +315,7 @@ export default function Composer({
             </button>
           ) : (
             <button
-              className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-full bg-fg text-bg transition hover:bg-white disabled:cursor-not-allowed disabled:bg-[#2d3744] disabled:text-muted"
+              className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-full bg-accent text-white transition hover:bg-[#d04200] disabled:cursor-not-allowed disabled:bg-[#2b2a26] disabled:text-muted"
               onClick={submit}
               disabled={!canSend}
               type="button"

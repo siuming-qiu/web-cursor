@@ -33,13 +33,13 @@ export default function ExportModal({
 
   return (
     <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="w-[430px] bg-panel border border-border rounded-[14px] overflow-hidden shadow-[0_24px_60px_rgba(0,0,0,0.5)]">
+      <div className="w-[430px] bg-panel border border-border rounded-[14px] overflow-hidden">
         <div className="flex items-center justify-between px-[18px] py-[15px] border-b border-border font-semibold">
           导出为静态 HTML
-          <button className="bg-none border-none text-muted text-lg" onClick={onClose}>
+            <button className="bg-none border-none text-muted text-lg hover:text-accent" onClick={onClose}>
             ✕
           </button>
         </div>
@@ -86,7 +86,7 @@ export default function ExportModal({
             取消
           </button>
           <button
-            className="px-3.5 py-1.5 rounded-md text-[13px] bg-accent border border-accent text-[#04101f] font-semibold hover:bg-[#79b8ff]"
+            className="px-3.5 py-1.5 rounded-md text-[13px] bg-accent border border-accent text-white font-medium hover:bg-[#d04200]"
             onClick={download}
           >
             ⬇ 下载 HTML

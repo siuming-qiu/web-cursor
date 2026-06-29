@@ -226,7 +226,7 @@ export default function Workbench({ projectId }: { projectId?: string }) {
   }, [s]);
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col bg-bg">
       <TopBar
         projName={s.projName}
         canAct={s.hasResult && !s.busy}
@@ -248,7 +248,7 @@ export default function Workbench({ projectId }: { projectId?: string }) {
               <div className="h-9 flex-none flex items-center justify-between gap-2 px-[14px] border-b border-border text-[12px] text-muted uppercase tracking-[0.06em]">
                 <span>对话线索</span>
                 <button
-                  className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-panel2 px-2.5 text-[12px] text-accent transition hover:border-accent hover:bg-[#1f2a3a]"
+                  className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-panel2 px-2.5 text-[12px] text-accent transition hover:border-accent hover:bg-[#1b1713]"
                   onClick={newConversation}
                 >
                   <Plus size={14} strokeWidth={2} />
@@ -270,7 +270,7 @@ export default function Workbench({ projectId }: { projectId?: string }) {
                           key={conversation.id}
                           className={
                             "flex items-center gap-2 rounded-md border px-2.5 py-2 text-left transition " +
-                            (active ? "border-accent bg-[#172033]" : "border-transparent hover:bg-panel2")
+                            (active ? "border-accent bg-[#1b1713]" : "border-transparent hover:bg-panel2")
                           }
                           onClick={() => openConversation(conversation.id)}
                         >
@@ -316,7 +316,7 @@ export default function Workbench({ projectId }: { projectId?: string }) {
             </div>
           )}
 
-          <div className="relative min-w-0 flex-1 bg-[#0f1117] p-3">
+          <div className="relative min-w-0 flex-1 bg-bg p-3">
             <div className={(viewMode === "code" ? "flex" : "hidden") + " absolute inset-3"}>
               <EditorPanel
                 code={s.code}
@@ -333,7 +333,7 @@ export default function Workbench({ projectId }: { projectId?: string }) {
                 onDeleteFile={s.deleteActiveFile}
               />
             </div>
-            <div className={(viewMode === "preview" ? "flex" : "hidden") + " absolute inset-3 overflow-hidden rounded-xl border border-[#2a3142]"}>
+            <div className={(viewMode === "preview" ? "flex" : "hidden") + " absolute inset-3 overflow-hidden rounded-xl border border-border"}>
               <PreviewPanel
                 iframeRef={s.iframeRef}
                 status={s.status}

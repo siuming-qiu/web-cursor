@@ -76,9 +76,9 @@ export default function ChatPanel({
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-[18px_16px] flex flex-col gap-4">
         {messages.length === 0 && (
           <div className="text-muted leading-[1.7]">
-            <h3 className="text-fg text-[15px] m-0 mb-1.5">👋 描述你想做的 React 界面</h3>
+            <h3 className="text-fg text-[15px] m-0 mb-1.5">描述你想做的 React 界面</h3>
             我来帮你写代码、运行，跑挂了还会自己修。
-            <div className="text-[11px] text-[#5a6573] uppercase tracking-[0.08em] mt-4 mb-0.5">快速开始</div>
+            <div className="text-[11px] text-muted uppercase tracking-[0.08em] mt-4 mb-0.5">快速开始</div>
             <div className="flex flex-col gap-2 mt-3.5">
               {QUICK.map((c) => (
                 <button key={c.label} className={chipBase} onClick={() => onSend(c.prompt)}>
@@ -92,14 +92,14 @@ export default function ChatPanel({
         {messages.map((m) =>
           m.role === "user" ? (
             <div key={m.id} className="flex max-w-full justify-end">
-              <div className="max-w-[min(76%,680px)] rounded-2xl rounded-tr-md bg-bubble/90 px-3.5 py-2.5 text-[13.5px] leading-[1.65] text-white shadow-[0_8px_22px_rgba(31,111,235,0.16)]">
+              <div className="max-w-[min(76%,680px)] rounded-2xl rounded-tr-md bg-bubble px-3.5 py-2.5 text-[13.5px] leading-[1.65] text-white">
                 {m.text && <div className="whitespace-pre-wrap break-words">{m.text}</div>}
                 {m.attachments?.length ? <UserAttachments attachments={m.attachments} /> : null}
               </div>
             </div>
           ) : (
             <div key={m.id} className="flex max-w-full">
-              <div className="min-w-0 max-w-[min(88%,760px)] rounded-2xl rounded-tl-md border border-border bg-panel2/88 px-3.5 py-2.5 text-[13.5px] leading-[1.65] text-fg shadow-[0_10px_28px_rgba(0,0,0,0.12)]">
+              <div className="min-w-0 max-w-[min(88%,760px)] rounded-2xl rounded-tl-md border border-border bg-panel2/95 px-3.5 py-2.5 text-[13.5px] leading-[1.65] text-fg">
                 <AiBubble m={m} />
               </div>
             </div>

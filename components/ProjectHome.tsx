@@ -45,15 +45,16 @@ export default function ProjectHome({ initialProjects }: { initialProjects: Proj
 
       <main className="flex-1 min-h-0 overflow-y-auto bg-bg px-8 py-8">
         <div className="mx-auto max-w-6xl">
-          <div className="mb-6 flex items-end justify-between gap-4">
+          <div className="mb-7 flex items-end justify-between gap-4">
             <div>
-              <h1 className="m-0 text-[22px] font-semibold tracking-wide text-fg">我的项目</h1>
-              <p className="mt-1 text-[13px] text-muted">
+              <p className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">Workspace</p>
+              <h1 className="m-0 text-[32px] font-normal leading-tight text-fg">我的项目</h1>
+              <p className="mt-2 text-[13px] text-muted">
                 项目保存一份代码库；项目下的多条会话线索共享当前代码。
               </p>
             </div>
             <button
-              className="rounded-md border border-accent bg-accent px-3 py-2 text-[13px] font-semibold text-[#04101f] hover:bg-[#79b8ff]"
+              className="rounded-lg border border-accent bg-accent px-4 py-2.5 text-[13px] font-medium text-white transition hover:bg-[#d04200]"
               onClick={createProject}
             >
               ＋ 新建项目
@@ -64,11 +65,11 @@ export default function ProjectHome({ initialProjects }: { initialProjects: Proj
             {projects.map((project) => (
               <button
                 key={project.id}
-                className="min-h-[132px] rounded-lg border border-border bg-panel p-4 text-left transition hover:-translate-y-0.5 hover:border-accent hover:bg-[#18202b]"
+                className="min-h-[148px] rounded-xl border border-border bg-panel p-4 text-left transition hover:-translate-y-0.5 hover:border-accent hover:bg-panel2"
                 onClick={() => router.push(`/p/${project.id}`)}
               >
                 <div className="mb-4 flex items-center justify-between">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-md bg-panel2 text-[18px]">⌘</span>
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-codebg text-[18px] text-accent">⌘</span>
                   <span className="text-[11px] text-muted">{formatTime(project.updatedAt ?? project.createdAt)}</span>
                 </div>
                 <div className="truncate text-[15px] font-semibold text-fg">{project.title}</div>

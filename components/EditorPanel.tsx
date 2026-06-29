@@ -38,7 +38,7 @@ function groupFiles(files: ProjectFileSummary[]): FileGroup[] {
 }
 
 const iconBtn =
-  "inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#303848] bg-[#1c2430] text-[13px] text-muted transition hover:border-accent hover:text-accent disabled:opacity-40";
+  "inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-panel2 text-[13px] text-muted transition hover:border-accent hover:text-accent disabled:opacity-40";
 
 type FileDialog =
   | { kind: "new"; path: string; error: string }
@@ -121,11 +121,11 @@ export default function EditorPanel({
   }
 
   return (
-    <div className="flex h-full min-w-0 flex-1 overflow-hidden rounded-xl border border-[#2a3142] bg-[#0b0e14] shadow-[0_18px_42px_rgba(0,0,0,0.22)]">
-      <aside className="flex h-full w-[270px] flex-none flex-col border-r border-[#2a3142] bg-[#111821]">
-        <div className="h-11 flex-none flex items-center justify-between gap-2 border-b border-[#2a3142] bg-[#141b25] px-3.5 text-[12px] uppercase tracking-[0.08em] text-muted">
+    <div className="flex h-full min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-codebg">
+      <aside className="flex h-full w-[270px] flex-none flex-col border-r border-border bg-panel">
+        <div className="h-11 flex-none flex items-center justify-between gap-2 border-b border-border bg-panel2 px-3.5 text-[12px] uppercase tracking-[0.08em] text-muted">
           <span>Files</span>
-          <span className="ml-auto rounded bg-[#0b0e14] px-2 py-0.5 text-[11px] tracking-normal text-[#6f7b8f]">{files.length}</span>
+          <span className="ml-auto rounded bg-codebg px-2 py-0.5 text-[11px] tracking-normal text-muted">{files.length}</span>
           <button
             className={iconBtn}
             onClick={() => setDialog({ kind: "new", path: "src/components/NewFile.tsx", error: "" })}
@@ -145,8 +145,8 @@ export default function EditorPanel({
               {groups.map((group) => (
                 <div key={group.dir || "__root"}>
                   {group.dir && (
-                    <div className="mb-1.5 flex items-center gap-1.5 px-1.5 text-[11px] uppercase tracking-[0.06em] text-[#758195]">
-                      <Folder size={12} strokeWidth={1.8} className="text-[#5f6d82]" />
+                    <div className="mb-1.5 flex items-center gap-1.5 px-1.5 text-[11px] uppercase tracking-[0.06em] text-muted">
+                      <Folder size={12} strokeWidth={1.8} className="text-muted" />
                       <span className="truncate">{group.dir}</span>
                     </div>
                   )}
@@ -159,13 +159,13 @@ export default function EditorPanel({
                           className={
                             "flex h-8 items-center gap-2 rounded-md border px-2.5 text-left text-[12.5px] transition " +
                             (active
-                              ? "border-[#4584d7] bg-[#172b44] text-fg shadow-[inset_3px_0_0_#58a6ff]"
-                              : "border-transparent text-muted hover:bg-[#1a2431] hover:text-fg")
+                              ? "border-accent bg-[#1b1713] text-fg shadow-[inset_3px_0_0_#f54e00]"
+                              : "border-transparent text-muted hover:bg-panel2 hover:text-fg")
                           }
                           onClick={() => onOpenFile(file.path)}
                           title={file.path}
                         >
-                          <FileCode2 size={13} strokeWidth={1.8} className={active ? "text-accent" : "text-[#788292]"} />
+                          <FileCode2 size={13} strokeWidth={1.8} className={active ? "text-accent" : "text-muted"} />
                           <span className="min-w-0 flex-1 truncate">{fileName(file.path)}</span>
                         </button>
                       );
@@ -178,17 +178,17 @@ export default function EditorPanel({
         </div>
       </aside>
 
-      <section className="flex h-full min-w-0 flex-1 flex-col bg-[#1e1e1e]">
-        <div className="h-11 flex-none flex items-center gap-2 border-b border-[#2a3142] bg-[#11161f] px-3 text-[12px] text-muted">
+      <section className="flex h-full min-w-0 flex-1 flex-col bg-[#11110f]">
+        <div className="h-11 flex-none flex items-center gap-2 border-b border-border bg-panel px-3 text-[12px] text-muted">
           <div
             className={
-              "flex h-full min-w-0 max-w-[520px] items-center gap-2 border-t-2 bg-[#1e1e1e] px-3 " +
+              "flex h-full min-w-0 max-w-[520px] items-center gap-2 border-t-2 bg-panel2 px-3 " +
               (hasActiveFileDraft ? "border-yellow" : "border-accent")
             }
             title={hasActiveFileDraft && activePath ? `${activePath} - 未保存草稿` : activePath ?? "未选择文件"}
           >
             <FileCode2 size={14} strokeWidth={1.8} className="text-accent" />
-            <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-[#d7dde8]">{activePath ?? "未选择文件"}</span>
+            <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-fg">{activePath ?? "未选择文件"}</span>
             {hasActiveFileDraft && (
               <span
                 className="h-2 w-2 flex-none rounded-full bg-yellow shadow-[0_0_0_2px_rgba(210,153,34,0.12)]"
@@ -224,7 +224,7 @@ export default function EditorPanel({
             <Trash2 size={14} strokeWidth={2} />
           </button>
           <button
-            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-accent bg-accent px-2.5 text-[12px] font-semibold text-[#04101f] transition hover:bg-[#79b8ff] disabled:opacity-40"
+            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-accent bg-accent px-2.5 text-[12px] font-medium text-white transition hover:bg-[#d04200] disabled:opacity-40"
             disabled={!canEdit || !hasActiveFileDraft}
             onClick={onSave}
           >
@@ -233,9 +233,9 @@ export default function EditorPanel({
           </button>
         </div>
 
-        <div className="relative min-h-0 flex-1 border-t border-[#151923]">
+        <div className="relative min-h-0 flex-1 border-t border-border">
           {!activePath && (
-            <div className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-2 px-6 text-center font-mono text-[13px] text-[#3a4150]">
+            <div className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-2 px-6 text-center font-mono text-[13px] text-muted">
               // 选择或新建一个文件
             </div>
           )}
@@ -244,12 +244,12 @@ export default function EditorPanel({
       </section>
 
       {dialog && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#05070b]/65 px-4 backdrop-blur-[2px]">
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/65 px-4 backdrop-blur-[2px]">
           <form
             onSubmit={submitDialog}
-            className="w-full max-w-[420px] rounded-lg border border-[#313b4d] bg-[#111821] shadow-[0_22px_70px_rgba(0,0,0,0.48)]"
+            className="w-full max-w-[420px] rounded-xl border border-border bg-panel"
           >
-            <div className="flex h-11 items-center justify-between border-b border-[#2a3142] px-4">
+            <div className="flex h-11 items-center justify-between border-b border-border px-4">
               <div className="text-[13px] font-semibold text-fg">{fileDialogTitle(dialog)}</div>
               <button
                 type="button"
@@ -270,7 +270,7 @@ export default function EditorPanel({
                   <span className="mb-1.5 block text-[12px] text-muted">项目内路径</span>
                   <input
                     autoFocus
-                    className="h-9 w-full rounded-md border border-[#303848] bg-[#0b0f14] px-3 font-mono text-[13px] text-fg outline-none transition focus:border-accent"
+                    className="h-9 w-full rounded-md border border-border bg-codebg px-3 font-mono text-[13px] text-fg outline-none transition focus:border-accent"
                     value={dialog.path}
                     onChange={(event) => setDialog({ ...dialog, path: event.target.value, error: "" })}
                   />
@@ -282,10 +282,10 @@ export default function EditorPanel({
                 </div>
               )}
             </div>
-            <div className="flex items-center justify-end gap-2 border-t border-[#2a3142] px-4 py-3">
+            <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
               <button
                 type="button"
-                className="h-8 rounded-md border border-[#303848] px-3 text-[12px] text-muted transition hover:border-accent hover:text-accent"
+                className="h-8 rounded-md border border-border px-3 text-[12px] text-muted transition hover:border-accent hover:text-accent"
                 onClick={() => setDialog(null)}
               >
                 取消
@@ -297,7 +297,7 @@ export default function EditorPanel({
                   "inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-[12px] font-semibold transition disabled:opacity-50 " +
                   (dialog.kind === "delete"
                     ? "border-red bg-red text-white hover:bg-[#ff6b64]"
-                    : "border-accent bg-accent text-[#04101f] hover:bg-[#79b8ff]")
+                    : "border-accent bg-accent text-white hover:bg-[#d04200]")
                 }
               >
                 {submitting && <Spinner />}
