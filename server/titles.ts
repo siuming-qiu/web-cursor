@@ -7,14 +7,18 @@
 import "server-only";
 
 import { eq } from "drizzle-orm";
+import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 import llmClient from "@/server/llm";
 import { db } from "@/server/db";
 import { conversations, projects } from "@/server/db/schema";
-import { AGENT_MODEL } from "@/server/models";
+import { TITLE_MODEL } from "@/server/models";
 
 const DEFAULT_TITLE = "untitled";
 const FALLBACK_TITLE_CHARS = 40;
 const MAX_TITLE_CHARS = 40;
+type DeepSeekNonStreamingParams = ChatCompletionCreateParamsNonStreaming & {
+  thinking: { type: "disabled" };
+};
 type TitleUpdate = {
   title: string;
   projectTitle?: string;
@@ -61,10 +65,11 @@ async function generateUserMessageTitle(userMessage: string) {
   const userContext = normalizeContext(userMessage);
   if (!userContext) return "";
 
-  const response = await llmClient.chat.completions.create({
-    model: AGENT_MODEL,
+  const params: DeepSeekNonStreamingParams = {
+    model: TITLE_MODEL,
     temperature: 0.2,
     max_tokens: 128,
+    thinking: { type: "disabled" },
     messages: [
       {
         role: "system",
@@ -83,7 +88,9 @@ async function generateUserMessageTitle(userMessage: string) {
         content: `用户第一句话：${userContext.slice(0, 600)}`,
       },
     ],
-  });
+  };
+
+  const response = await llmClient.chat.completions.create(params);
 
   return cleanGeneratedTitle(response.choices[0]?.message?.content ?? "");
 }

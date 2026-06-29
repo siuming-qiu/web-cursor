@@ -6,7 +6,7 @@
  */
 import "server-only";
 import OpenAI from "openai";
-import { AGENT_MODEL } from "@/server/models";
+import { VISION_MODEL } from "@/server/models";
 
 const YUNWU_BASE_URL = "https://yunwu.ai/v1";
 
@@ -21,7 +21,7 @@ export async function inspectImageAttachment(dataUrl: string): Promise<string> {
   }
 
   const result = await visionClient.chat.completions.create({
-    model: AGENT_MODEL,
+    model: VISION_MODEL,
     temperature: 0.2,
     max_tokens: 1000,
     messages: [

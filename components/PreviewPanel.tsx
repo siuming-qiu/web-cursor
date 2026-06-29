@@ -106,7 +106,7 @@ export default function PreviewPanel({
 
         {overlay.show && (
           <div className="absolute inset-3 z-[2] flex flex-col overflow-auto rounded-lg border border-border bg-bg/[0.92] p-[22px] backdrop-blur-[2px]">
-            <span className="inline-flex items-center gap-[7px] text-red font-bold text-[13px] mb-3">⚠ Runtime Error</span>
+            <span className="inline-flex items-center gap-[7px] text-red font-bold text-[13px] mb-3">⚠ {overlay.title ?? "Runtime Error"}</span>
             <div className="font-mono text-[14px] text-[#ff9c96] bg-red/10 border border-red/30 rounded-lg px-[13px] py-[11px] leading-[1.5] whitespace-pre-wrap">
               {overlay.message}
             </div>

@@ -95,18 +95,33 @@ function resolveLocalPath(files: Map<string, string>, importer: string, specifie
   return null;
 }
 
-function parsePackageDependencies(content: string | undefined): Record<string, string> {
+type PackageContract = {
+  dependencies: Record<string, string>;
+  esmExternal: string[];
+};
+
+function parsePackageContract(content: string | undefined): PackageContract {
   if (!content) {
     throw new TranspileError([{ text: "找不到 package.json：依赖必须通过 package.json dependencies 声明并映射到 esm.sh CDN", location: null }]);
   }
   try {
     const pkg = JSON.parse(content) as {
       dependencies?: Record<string, string>;
+      webCursor?: {
+        esmExternal?: unknown;
+      };
     };
     if (!pkg.dependencies || typeof pkg.dependencies !== "object" || Array.isArray(pkg.dependencies)) {
       throw new TranspileError([{ text: "package.json 必须声明 dependencies 对象，浏览器会用它解析 esm.sh CDN 依赖", location: null }]);
     }
-    return pkg.dependencies;
+    const esmExternal = pkg.webCursor?.esmExternal;
+    if (esmExternal !== undefined && (!Array.isArray(esmExternal) || esmExternal.some((name) => typeof name !== "string" || !name.trim()))) {
+      throw new TranspileError([{ text: "package.json webCursor.esmExternal 必须是非空字符串数组", location: null }]);
+    }
+    return {
+      dependencies: pkg.dependencies,
+      esmExternal: esmExternal ? esmExternal.map((name) => name.trim()) : [],
+    };
   } catch (error) {
     if (error instanceof TranspileError) throw error;
     throw new TranspileError([{ text: "package.json 不是合法 JSON", location: null }]);
@@ -130,11 +145,18 @@ function cleanVersion(version: string | undefined): string {
   return version.trim().replace(/^[~^]/, "");
 }
 
-function esmUrl(specifier: string, deps: Record<string, string>): string | null {
+function withQuery(url: string, params: Record<string, string>) {
+  const query = new URLSearchParams(params).toString();
+  return query ? `${url}?${query}` : url;
+}
+
+function esmUrl(specifier: string, contract: PackageContract): string | null {
   const name = packageName(specifier);
-  const version = cleanVersion(deps[name]);
+  const version = cleanVersion(contract.dependencies[name]);
   if (!version) return null;
-  return `https://esm.sh/${name}@${version}${specifier.slice(name.length)}`;
+  const url = `https://esm.sh/${name}@${version}${specifier.slice(name.length)}`;
+  const external = contract.esmExternal.filter((externalName) => externalName !== name);
+  return withQuery(url, external.length ? { external: external.join(",") } : {});
 }
 
 function isReactRuntimeImport(specifier: string): boolean {
@@ -223,7 +245,7 @@ export async function compileProject(files: TranspileProjectFile[]): Promise<Com
 
   const fileMap = new Map(files.map((file) => [normalizePath(file.path), file.content]));
   const entry = detectEntry(fileMap);
-  const dependencies = parsePackageDependencies(fileMap.get("package.json"));
+  const packageContract = parsePackageContract(fileMap.get("package.json"));
   if (!fileMap.has(entry)) {
     throw new TranspileError([{ text: `入口文件不存在：${entry}`, location: null }]);
   }
@@ -265,7 +287,7 @@ export async function compileProject(files: TranspileProjectFile[]): Promise<Com
                 return { path: args.path, external: true };
               }
 
-              const url = esmUrl(args.path, dependencies);
+              const url = esmUrl(args.path, packageContract);
               if (!url) {
                 return { errors: [{ text: `依赖未在 package.json 声明：${packageName(args.path)}` }] };
               }
@@ -288,7 +310,7 @@ export async function compileProject(files: TranspileProjectFile[]): Promise<Com
       entryPath: entry,
       js: result.outputFiles.find((file) => file.path.endsWith(".js"))?.text ?? "",
       css: result.outputFiles.filter((file) => file.path.endsWith(".css")).map((file) => file.text).join("\n"),
-      importMap: reactRuntimeImportMap(dependencies),
+      importMap: reactRuntimeImportMap(packageContract.dependencies),
     };
   } catch (e: any) {
     throw toTranspileError(e);

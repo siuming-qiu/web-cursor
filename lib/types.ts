@@ -58,6 +58,7 @@ export interface Status {
 
 export interface Overlay {
   show: boolean;
+  title?: string;
   message: string;
   stack: string;
   showStack: boolean;

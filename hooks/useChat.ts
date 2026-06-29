@@ -46,6 +46,19 @@ function previewSucceeded(result: ToolResult | null): boolean {
   return result?.status === "ok" && result.type === ToolResultType.RenderOk;
 }
 
+function previewSummary(result: ToolResult | null, shouldRunPreview: boolean) {
+  if (!shouldRunPreview) {
+    return { summaryKind: "ok" as const, summary: "已更新文件，未触发预览" };
+  }
+  if (previewSucceeded(result)) {
+    return { summaryKind: "ok" as const, summary: "已更新文件并渲染成功" };
+  }
+  if (result) {
+    return { summaryKind: "fail" as const, summary: "已更新文件，预览失败，未自动回灌给 AI" };
+  }
+  return { summaryKind: "fail" as const, summary: "已更新文件，预览没有返回结果" };
+}
+
 function interruptedPreviewResult(message: string): ToolResult {
   return { status: "error", type: ToolResultType.ToolInterrupted, message };
 }
@@ -226,24 +239,11 @@ export function useChat(deps: UseChatDeps) {
               const preview = result.shouldRunPreviewForFilesChanged && result.filesChangedProjectId
                 ? await deps.runPreview(result.filesChangedProjectId)
                 : null;
-              const conversationId = convIdRef.current;
-              if (result.shouldRunPreviewForFilesChanged && !previewSucceeded(preview) && conversationId) {
-                deps.setPreviewStatus({ kind: "load", text: "AI 正在根据预览错误修复…" });
-                setAgentActivity("AI 正在根据预览错误修复…");
-                turn = {
-                  kind: "preview_feedback",
-                  conversationId,
-                  result: preview ?? interruptedPreviewResult("预览没有返回结果。"),
-                };
-                continue;
-              }
-
+              const summary = previewSummary(preview, Boolean(result.shouldRunPreviewForFilesChanged));
               updateAi((m) => ({
                 ...m,
-                summaryKind: !result.shouldRunPreviewForFilesChanged || previewSucceeded(preview) ? "ok" : "fail",
-                summary: !result.shouldRunPreviewForFilesChanged
-                  ? "已更新文件，未触发预览"
-                  : previewSucceeded(preview) ? "已更新文件并渲染成功" : "已更新文件，但预览需要处理",
+                summaryKind: summary.summaryKind,
+                summary: summary.summary,
               }));
             } else {
               deps.setPreviewStatus({ kind: "", text: "等待你的回复" });

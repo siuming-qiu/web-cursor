@@ -61,6 +61,7 @@ export function useWorkbenchController() {
       change?.sync?.catch((error) => {
         preview.setOverlay({
           show: true,
+          title: "Save Error",
           message: String(error instanceof Error ? error.message : error),
           stack: error instanceof Error ? error.stack ?? "" : "",
           showStack: false,
@@ -82,6 +83,7 @@ export function useWorkbenchController() {
     onError: (error: unknown) => {
       preview.setOverlay({
         show: true,
+        title: "Agent Error",
         message: String(error instanceof Error ? error.message : error),
         stack: error instanceof Error ? error.stack ?? "" : "",
         showStack: false,

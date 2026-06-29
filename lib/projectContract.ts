@@ -27,11 +27,11 @@ function fileMap(files: ProjectContractFile[]) {
   return new Map(files.map((file) => [file.path, file.content]));
 }
 
-function parsePackageJson(content: string): { dependencies?: unknown } | null {
+function parsePackageJson(content: string): { dependencies?: unknown; webCursor?: unknown } | null {
   try {
     const parsed = JSON.parse(content);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed as { dependencies?: unknown }
+      ? parsed as { dependencies?: unknown; webCursor?: unknown }
       : null;
   } catch {
     return null;
@@ -71,6 +71,25 @@ export function validateReactProjectContract(files: ProjectContractFile[]): Proj
       }
       if (typeof dependencies["react-dom"] !== "string") {
         errors.push("package.json dependencies 缺少 react-dom；React DOM 默认通过 esm.sh CDN 加载，但必须在 dependencies 声明版本");
+      }
+    }
+
+    if (parsed?.webCursor !== undefined) {
+      if (typeof parsed.webCursor !== "object" || parsed.webCursor === null || Array.isArray(parsed.webCursor)) {
+        errors.push("package.json webCursor 必须是对象");
+      } else {
+        const config = parsed.webCursor as { esmExternal?: unknown };
+        if (config.esmExternal !== undefined) {
+          if (!Array.isArray(config.esmExternal)) {
+            errors.push("package.json webCursor.esmExternal 必须是字符串数组");
+          } else {
+            for (const [index, name] of config.esmExternal.entries()) {
+              if (typeof name !== "string" || !name.trim()) {
+                errors.push(`package.json webCursor.esmExternal[${index}] 必须是非空字符串`);
+              }
+            }
+          }
+        }
       }
     }
   }

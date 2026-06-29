@@ -6,6 +6,7 @@
  *   文件当前态只在 project_files，不再从 assistant message 恢复代码。
  */
 import { toLLMMessages } from "@/server/context";
+import type { ChatCompletionCreateParamsStreaming } from "openai/resources/chat/completions";
 import { db } from "@/server/db";
 import { conversations, projects } from "@/server/db/schema";
 import llmClient, { SYSTEM_PROMPT, tools } from "@/server/llm";
@@ -26,7 +27,11 @@ export const dynamic = "force-dynamic";
 
 type DbMessage = Awaited<ReturnType<typeof listMessages>>[number];
 
-const MAX_TOOL_ROUNDS = 8;
+const MAX_TOOL_ROUNDS = 16;
+
+type DeepSeekStreamingParams = ChatCompletionCreateParamsStreaming & {
+  thinking: { type: "disabled" };
+};
 
 function sseResponse(stream: ReadableStream<Uint8Array>) {
   return new Response(stream, {
@@ -42,13 +47,15 @@ function assistantMessages(rows: DbMessage[]) {
 }
 
 async function requestAssistant(rows: DbMessage[]) {
-  return llmClient.chat.completions.create({
+  const params: DeepSeekStreamingParams = {
     messages: assistantMessages(rows),
     model: AGENT_MODEL,
     tools,
     tool_choice: "required",
     stream: true,
-  });
+    thinking: { type: "disabled" },
+  };
+  return llmClient.chat.completions.create(params);
 }
 
 async function collectAssistantTurn(

@@ -17,7 +17,7 @@ import { compileProject, TranspileError, type TranspileProjectFile } from "@/lib
 import type { Overlay, Status } from "@/lib/types";
 import { ToolResultType, type ToolResult } from "@/types/tool";
 
-const EMPTY_OVERLAY: Overlay = { show: false, message: "", stack: "", showStack: false };
+const EMPTY_OVERLAY: Overlay = { show: false, title: "Runtime Error", message: "", stack: "", showStack: false };
 
 export type PreviewRunPhase = "idle" | "reading" | "compiling" | "running";
 
@@ -44,7 +44,7 @@ export function usePreview(readProjectFiles: (projectId: string) => Promise<Tran
     if (iframeRef.current && !sandboxRef.current) {
       const ctl = new SandboxController(iframeRef.current);
       ctl.onLateError = (e) =>
-        setOverlay({ show: true, message: e.message, stack: e.stack, showStack: false });
+        setOverlay({ show: true, title: "Runtime Error", message: e.message, stack: e.stack, showStack: false });
       sandboxRef.current = ctl;
     }
     return sandboxRef.current;
@@ -134,7 +134,7 @@ export function usePreview(readProjectFiles: (projectId: string) => Promise<Tran
 
         if (result) {
           setStatus({ kind: "err", text: "运行报错" });
-          setOverlay({ show: true, message: result.message, stack: result.stack, showStack: false });
+          setOverlay({ show: true, title: "Runtime Error", message: result.message, stack: result.stack, showStack: false });
           setPreviewRunPhase("idle");
           return {
             status: "error",
@@ -153,7 +153,7 @@ export function usePreview(readProjectFiles: (projectId: string) => Promise<Tran
           ? error.failures.map((failure) => failure.text).join("; ")
           : String(error instanceof Error ? error.message : error);
         setStatus({ kind: "err", text: "编译报错" });
-        setOverlay({ show: true, message: "编译错误：" + message, stack: "", showStack: false });
+        setOverlay({ show: true, title: "Compile Error", message: "编译错误：" + message, stack: "", showStack: false });
         setPreviewRunPhase("idle");
         return { status: "error", type: ToolResultType.CompileError, message };
       }
