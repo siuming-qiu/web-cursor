@@ -31,7 +31,7 @@ let currentRunId = 0;
 let activeImportMapKey = "";
 function fail(message, stack) {
   runFailed = true;
-  post({ type: "RUNTIME_ERROR", message: String(message || "未知错误"), stack: String(stack || "") });
+  post({ type: "RUNTIME_ERROR", runId: currentRunId, message: String(message || "未知错误"), stack: String(stack || "") });
 }
 
 // console 转发
@@ -64,6 +64,12 @@ function resetModuleTags() {
   document.querySelectorAll("script[data-project-module]").forEach((node) => node.remove());
 }
 
+window.__WEB_CURSOR_REPORT_RENDER_OK__ = (runId) => {
+  setTimeout(() => {
+    if (runId === currentRunId && !runFailed) post({ type: "RENDER_OK", runId });
+  }, 0);
+};
+
 function ensureImportMap(importMap) {
   const normalizedImportMap = importMap || { imports: {} };
   const nextKey = JSON.stringify(normalizedImportMap);
@@ -85,7 +91,12 @@ function ensureImportMap(importMap) {
 window.addEventListener("message", async (e) => {
   const d = e.data;
   if (!d || d.type !== "RUN") return;
-  const runId = ++currentRunId;
+  const runId = Number(d.runId);
+  if (!Number.isSafeInteger(runId) || runId <= 0) {
+    fail("预览运行协议错误：缺少合法 runId", "");
+    return;
+  }
+  currentRunId = runId;
   runFailed = false;
   try {
     const project = d.project || {};
@@ -94,7 +105,11 @@ window.addEventListener("message", async (e) => {
     if (!ensureImportMap(project.importMap)) return;
     resetRoot();
 
-    const blob = new Blob([String(project.js || "")], { type: "text/javascript" });
+    const source = String(project.js || "")
+      + "\\n\\nwindow.__WEB_CURSOR_REPORT_RENDER_OK__("
+      + JSON.stringify(runId)
+      + ");\\n";
+    const blob = new Blob([source], { type: "text/javascript" });
     const url = URL.createObjectURL(blob);
     const script = document.createElement("script");
     script.type = "module";
@@ -102,8 +117,6 @@ window.addEventListener("message", async (e) => {
     script.dataset.projectModule = "true";
     script.onload = () => {
       URL.revokeObjectURL(url);
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => { if (runId === currentRunId && !runFailed) post({ type: "RENDER_OK" }); }));
     };
     script.onerror = () => {
       URL.revokeObjectURL(url);

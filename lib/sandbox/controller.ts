@@ -25,8 +25,10 @@ export class SandboxController {
   private ready = false;
   private runnerLoaded = false;
   private importMapKey: string | null = null;
+  private nextRunId = 0;
+  private lastSuccessfulRunId: number | null = null;
   private readyWaiters: (() => void)[] = [];
-  private pending: ((r: SandboxResult) => void) | null = null;
+  private pending: { runId: number; resolve: (r: SandboxResult) => void } | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   onConsole: ((e: ConsoleEntry) => void) | null = null;
   /** 渲染成功后又冒出的"运行时"错误（如点击后才崩）；用于实时错误浮层 */
@@ -51,25 +53,36 @@ export class SandboxController {
         this.onConsole?.({ level: d.level, text: d.text });
         break;
       case "RENDER_OK":
-        this.settle({ type: "RENDER_OK" });
+        this.settle(d.runId, { type: "RENDER_OK" });
         break;
       case "RUNTIME_ERROR":
-        this.settle({ type: "RUNTIME_ERROR", message: d.message, stack: d.stack });
+        this.settle(d.runId, { type: "RUNTIME_ERROR", message: d.message, stack: d.stack });
         break;
     }
   };
 
-  private settle(r: SandboxResult) {
+  private settle(runId: unknown, r: SandboxResult) {
+    if (typeof runId !== "number") return;
     if (this.pending) {
+      if (this.pending.runId !== runId) return;
       if (this.timer) clearTimeout(this.timer);
-      const p = this.pending;
+      const p = this.pending.resolve;
       this.pending = null;
       this.timer = null;
+      if (r.type === "RENDER_OK") this.lastSuccessfulRunId = runId;
       p(r);
-    } else if (r.type === "RUNTIME_ERROR") {
+    } else if (r.type === "RUNTIME_ERROR" && this.lastSuccessfulRunId === runId) {
       // 没有等待者却报错 = 渲染成功后用户交互触发的"晚到错误"
       this.onLateError?.({ message: r.message, stack: r.stack });
     }
+  }
+
+  private interruptPending(message: string) {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    const pending = this.pending;
+    this.pending = null;
+    pending?.resolve({ type: "RUNTIME_ERROR", message, stack: "" });
   }
 
   private whenReady(): Promise<void> {
@@ -99,22 +112,26 @@ export class SandboxController {
 
   /** 注入项目编译产物执行，等沙箱回 RENDER_OK / RUNTIME_ERROR / 超时 */
   async run(project: CompiledProject): Promise<SandboxResult> {
+    this.interruptPending("预览已被新的运行打断");
     if (this.shouldReloadRunner(project)) {
       this.reloadRunner();
       await this.whenReady();
     }
+    const runId = ++this.nextRunId;
     return new Promise<SandboxResult>((resolve) => {
-      this.pending = resolve;
+      this.pending = { runId, resolve };
       this.timer = setTimeout(() => {
+        if (this.pending?.runId !== runId) return;
         this.pending = null;
         this.timer = null;
         resolve({ type: "RUNTIME_ERROR", message: "渲染超时（依赖加载过慢、网络失败或疑似死循环）", stack: "" });
       }, RUN_TIMEOUT_MS);
-      this.iframe.contentWindow?.postMessage({ type: "RUN", project }, "*");
+      this.iframe.contentWindow?.postMessage({ type: "RUN", runId, project }, "*");
     });
   }
 
   dispose() {
+    this.interruptPending("预览控制器已释放");
     window.removeEventListener("message", this.handle);
   }
 }

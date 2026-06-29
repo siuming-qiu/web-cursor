@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, MessageSquare, Plus } from "lucide-react";
 import { req } from "@/lib/api";
-import { useChat } from "@/hooks/useChat";
+import { useWorkbenchController } from "@/hooks/useWorkbenchController";
 import type { ProjectDetail, StoredMessage } from "@/lib/projectTypes";
 import { formatTime } from "@/lib/projectTypes";
 import { useWorkbenchStore } from "@/lib/workbenchStore";
@@ -80,7 +80,7 @@ function WorkbenchSkeleton() {
 
 export default function Workbench({ projectId }: { projectId?: string }) {
   const router = useRouter();
-  const s = useChat();
+  const s = useWorkbenchController();
   const {
     openProject,
     openConversation: restoreConversation,
@@ -93,10 +93,12 @@ export default function Workbench({ projectId }: { projectId?: string }) {
   const [projectDetail, setProjectDetail] = useState<ProjectDetail | null>(null);
   const [loadingProject, setLoadingProject] = useState(!!projectId);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
+  const [previewHasUpdate, setPreviewHasUpdate] = useState(false);
   const viewMode = useWorkbenchStore((state) => state.viewMode);
   const setViewMode = useWorkbenchStore((state) => state.setViewMode);
   const initialConversationIdRef = useRef<string | null>(null);
   const initialPreviewProjectIdRef = useRef<string | null>(null);
+  const previousPreviewRunPhaseRef = useRef(s.previewRunPhase);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -157,6 +159,21 @@ export default function Workbench({ projectId }: { projectId?: string }) {
   }, [loadingProject, projectDetail, runPreview]);
 
   useEffect(() => {
+    if (viewMode === "preview") {
+      setPreviewHasUpdate(false);
+    }
+  }, [viewMode]);
+
+  useEffect(() => {
+    const previous = previousPreviewRunPhaseRef.current;
+    previousPreviewRunPhaseRef.current = s.previewRunPhase;
+    if (previous === "idle" || s.previewRunPhase !== "idle") return;
+    if (viewMode === "preview") return;
+    if (s.status.kind !== "ok" && s.status.kind !== "err") return;
+    setPreviewHasUpdate(true);
+  }, [s.previewRunPhase, s.status.kind, viewMode]);
+
+  useEffect(() => {
     const titleUpdate = s.lastTitleUpdate;
     if (!titleUpdate) return;
     setProjectDetail((detail) => detail
@@ -203,9 +220,9 @@ export default function Workbench({ projectId }: { projectId?: string }) {
     [s]
   );
 
-  const newFileInCode = useCallback(() => {
+  const newFileInCode = useCallback((path: string) => {
     setViewMode("code");
-    s.newFile();
+    return s.newFile(path);
   }, [s]);
 
   return (
@@ -214,6 +231,8 @@ export default function Workbench({ projectId }: { projectId?: string }) {
         projName={s.projName}
         canAct={s.hasResult && !s.busy}
         viewMode={viewMode}
+        previewRunPhase={s.previewRunPhase}
+        previewHasUpdate={previewHasUpdate}
         onViewModeChange={setViewMode}
         onHome={projectId ? () => router.push("/") : undefined}
         onRerun={rerunPreview}
@@ -303,9 +322,9 @@ export default function Workbench({ projectId }: { projectId?: string }) {
                 code={s.code}
                 files={s.files}
                 activePath={s.activePath}
-                dirty={s.dirty}
+                hasActiveFileDraft={s.hasActiveFileDraft}
                 writing={s.writing}
-                saving={s.saving}
+                activeFileSyncing={s.activeFileSyncing}
                 onChange={s.updateCode}
                 onOpenFile={openFileInCode}
                 onSave={s.saveActiveFile}
@@ -321,6 +340,7 @@ export default function Workbench({ projectId }: { projectId?: string }) {
                 overlay={s.overlay}
                 setOverlay={s.setOverlay}
                 previewActive={s.previewActive}
+                previewRunPhase={s.previewRunPhase}
                 canAct={s.hasResult && !s.busy}
                 onRerun={rerunPreview}
                 onExport={() => setExportOpen(true)}

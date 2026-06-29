@@ -1,7 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo } from "react";
+import { FormEvent, useMemo, useState } from "react";
+import { FileCode2, FilePlus2, Folder, PencilLine, Save, Trash2, X } from "lucide-react";
 import Spinner from "./Spinner";
 import type { ProjectFileSummary } from "@/lib/projectTypes";
 
@@ -39,13 +40,35 @@ function groupFiles(files: ProjectFileSummary[]): FileGroup[] {
 const iconBtn =
   "inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#303848] bg-[#1c2430] text-[13px] text-muted transition hover:border-accent hover:text-accent disabled:opacity-40";
 
+type FileDialog =
+  | { kind: "new"; path: string; error: string }
+  | { kind: "rename"; path: string; error: string }
+  | { kind: "delete"; path: string; error: string }
+  | null;
+
+function normalizeInputPath(path: string) {
+  return path.trim();
+}
+
+function fileDialogTitle(dialog: Exclude<FileDialog, null>) {
+  if (dialog.kind === "new") return "新建文件";
+  if (dialog.kind === "rename") return "重命名或移动";
+  return "删除文件";
+}
+
+function fileDialogAction(dialog: Exclude<FileDialog, null>) {
+  if (dialog.kind === "new") return "创建";
+  if (dialog.kind === "rename") return "应用";
+  return "删除";
+}
+
 export default function EditorPanel({
   code,
   files,
   activePath,
-  dirty,
+  hasActiveFileDraft,
   writing,
-  saving,
+  activeFileSyncing,
   onChange,
   onOpenFile,
   onSave,
@@ -56,18 +79,46 @@ export default function EditorPanel({
   code: string;
   files: ProjectFileSummary[];
   activePath?: string;
-  dirty: boolean;
+  hasActiveFileDraft: boolean;
   writing: boolean;
-  saving: boolean;
+  activeFileSyncing: boolean;
   onChange: (value: string) => void;
   onOpenFile: (path: string) => void;
   onSave: () => void;
-  onNewFile: () => void;
-  onRenameFile: () => void;
-  onDeleteFile: () => void;
+  onNewFile: (path: string) => void | Promise<void>;
+  onRenameFile: (newPath: string) => void | Promise<void>;
+  onDeleteFile: () => void | Promise<void>;
 }) {
   const groups = useMemo(() => groupFiles(files), [files]);
   const canEdit = !!activePath;
+  const [dialog, setDialog] = useState<FileDialog>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submitDialog(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!dialog) return;
+
+    const path = normalizeInputPath(dialog.path);
+    if (dialog.kind !== "delete" && !path) {
+      setDialog({ ...dialog, error: "请输入项目内文件路径" });
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      if (dialog.kind === "new") await onNewFile(path);
+      if (dialog.kind === "rename") await onRenameFile(path);
+      if (dialog.kind === "delete") await onDeleteFile();
+      setDialog(null);
+    } catch (error) {
+      setDialog({
+        ...dialog,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <div className="flex h-full min-w-0 flex-1 overflow-hidden rounded-xl border border-[#2a3142] bg-[#0b0e14] shadow-[0_18px_42px_rgba(0,0,0,0.22)]">
@@ -75,8 +126,12 @@ export default function EditorPanel({
         <div className="h-11 flex-none flex items-center justify-between gap-2 border-b border-[#2a3142] bg-[#141b25] px-3.5 text-[12px] uppercase tracking-[0.08em] text-muted">
           <span>Files</span>
           <span className="ml-auto rounded bg-[#0b0e14] px-2 py-0.5 text-[11px] tracking-normal text-[#6f7b8f]">{files.length}</span>
-          <button className={iconBtn} onClick={onNewFile} title="新建文件">
-            ＋
+          <button
+            className={iconBtn}
+            onClick={() => setDialog({ kind: "new", path: "src/components/NewFile.tsx", error: "" })}
+            title="新建文件"
+          >
+            <FilePlus2 size={14} strokeWidth={2} />
           </button>
         </div>
 
@@ -91,7 +146,7 @@ export default function EditorPanel({
                 <div key={group.dir || "__root"}>
                   {group.dir && (
                     <div className="mb-1.5 flex items-center gap-1.5 px-1.5 text-[11px] uppercase tracking-[0.06em] text-[#758195]">
-                      <span className="text-[#5f6d82]">▾</span>
+                      <Folder size={12} strokeWidth={1.8} className="text-[#5f6d82]" />
                       <span className="truncate">{group.dir}</span>
                     </div>
                   )}
@@ -110,7 +165,7 @@ export default function EditorPanel({
                           onClick={() => onOpenFile(file.path)}
                           title={file.path}
                         >
-                          <span className={active ? "text-accent" : "text-[#788292]"}>□</span>
+                          <FileCode2 size={13} strokeWidth={1.8} className={active ? "text-accent" : "text-[#788292]"} />
                           <span className="min-w-0 flex-1 truncate">{fileName(file.path)}</span>
                         </button>
                       );
@@ -125,33 +180,55 @@ export default function EditorPanel({
 
       <section className="flex h-full min-w-0 flex-1 flex-col bg-[#1e1e1e]">
         <div className="h-11 flex-none flex items-center gap-2 border-b border-[#2a3142] bg-[#11161f] px-3 text-[12px] text-muted">
-          <div className="flex h-full min-w-0 max-w-[520px] items-center gap-2 border-t-2 border-accent bg-[#1e1e1e] px-3">
-            <span className="text-accent">□</span>
+          <div
+            className={
+              "flex h-full min-w-0 max-w-[520px] items-center gap-2 border-t-2 bg-[#1e1e1e] px-3 " +
+              (hasActiveFileDraft ? "border-yellow" : "border-accent")
+            }
+            title={hasActiveFileDraft && activePath ? `${activePath} - 未保存草稿` : activePath ?? "未选择文件"}
+          >
+            <FileCode2 size={14} strokeWidth={1.8} className="text-accent" />
             <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-[#d7dde8]">{activePath ?? "未选择文件"}</span>
+            {hasActiveFileDraft && (
+              <span
+                className="h-2 w-2 flex-none rounded-full bg-yellow shadow-[0_0_0_2px_rgba(210,153,34,0.12)]"
+                aria-label="未保存"
+              />
+            )}
           </div>
           <div className="flex-1" />
-          {dirty && <span className="rounded bg-yellow/10 px-1.5 py-0.5 text-[11px] text-yellow">未保存</span>}
           {writing && (
             <span className="inline-flex items-center gap-1.5 rounded bg-codebg/80 px-2 py-[3px] text-[11px] text-accent">
               <Spinner /> AI 写入
             </span>
           )}
-          {saving && (
+          {activeFileSyncing && (
             <span className="inline-flex items-center gap-1.5 rounded bg-codebg/80 px-2 py-[3px] text-[11px] text-accent">
-              <Spinner /> 保存中
+              <Spinner /> 同步中
             </span>
           )}
-          <button className={iconBtn} disabled={!canEdit || saving} onClick={onRenameFile} title="重命名或移动">
-            ↪
-          </button>
-          <button className={iconBtn} disabled={!canEdit || saving} onClick={onDeleteFile} title="删除文件">
-            ×
+          <button
+            className={iconBtn}
+            disabled={!canEdit || activeFileSyncing}
+            onClick={() => activePath && setDialog({ kind: "rename", path: activePath, error: "" })}
+            title="重命名或移动"
+          >
+            <PencilLine size={14} strokeWidth={2} />
           </button>
           <button
-            className="inline-flex h-7 items-center rounded-md border border-accent bg-accent px-2.5 text-[12px] font-semibold text-[#04101f] transition hover:bg-[#79b8ff] disabled:opacity-40"
-            disabled={!canEdit || !dirty || saving}
+            className={iconBtn}
+            disabled={!canEdit || activeFileSyncing}
+            onClick={() => activePath && setDialog({ kind: "delete", path: activePath, error: "" })}
+            title="删除文件"
+          >
+            <Trash2 size={14} strokeWidth={2} />
+          </button>
+          <button
+            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-accent bg-accent px-2.5 text-[12px] font-semibold text-[#04101f] transition hover:bg-[#79b8ff] disabled:opacity-40"
+            disabled={!canEdit || !hasActiveFileDraft}
             onClick={onSave}
           >
+            <Save size={13} strokeWidth={2.2} />
             保存
           </button>
         </div>
@@ -162,9 +239,74 @@ export default function EditorPanel({
               // 选择或新建一个文件
             </div>
           )}
-          {activePath && <CodeEditor path={activePath} value={code} onChange={onChange} />}
+          {activePath && <CodeEditor path={activePath} value={code} onChange={onChange} onSave={onSave} />}
         </div>
       </section>
+
+      {dialog && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#05070b]/65 px-4 backdrop-blur-[2px]">
+          <form
+            onSubmit={submitDialog}
+            className="w-full max-w-[420px] rounded-lg border border-[#313b4d] bg-[#111821] shadow-[0_22px_70px_rgba(0,0,0,0.48)]"
+          >
+            <div className="flex h-11 items-center justify-between border-b border-[#2a3142] px-4">
+              <div className="text-[13px] font-semibold text-fg">{fileDialogTitle(dialog)}</div>
+              <button
+                type="button"
+                className={iconBtn}
+                onClick={() => setDialog(null)}
+                title="关闭"
+              >
+                <X size={14} strokeWidth={2} />
+              </button>
+            </div>
+            <div className="px-4 py-4">
+              {dialog.kind === "delete" ? (
+                <div className="rounded-md border border-red/30 bg-red/10 px-3 py-2.5 font-mono text-[12.5px] text-[#ffd0cc]">
+                  {dialog.path}
+                </div>
+              ) : (
+                <label className="block">
+                  <span className="mb-1.5 block text-[12px] text-muted">项目内路径</span>
+                  <input
+                    autoFocus
+                    className="h-9 w-full rounded-md border border-[#303848] bg-[#0b0f14] px-3 font-mono text-[13px] text-fg outline-none transition focus:border-accent"
+                    value={dialog.path}
+                    onChange={(event) => setDialog({ ...dialog, path: event.target.value, error: "" })}
+                  />
+                </label>
+              )}
+              {dialog.error && (
+                <div className="mt-3 rounded-md border border-red/30 bg-red/10 px-3 py-2 text-[12px] text-[#ffd0cc]">
+                  {dialog.error}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-[#2a3142] px-4 py-3">
+              <button
+                type="button"
+                className="h-8 rounded-md border border-[#303848] px-3 text-[12px] text-muted transition hover:border-accent hover:text-accent"
+                onClick={() => setDialog(null)}
+              >
+                取消
+              </button>
+              <button
+                type="submit"
+                disabled={submitting || activeFileSyncing}
+                className={
+                  "inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-[12px] font-semibold transition disabled:opacity-50 " +
+                  (dialog.kind === "delete"
+                    ? "border-red bg-red text-white hover:bg-[#ff6b64]"
+                    : "border-accent bg-accent text-[#04101f] hover:bg-[#79b8ff]")
+                }
+              >
+                {submitting && <Spinner />}
+                {fileDialogAction(dialog)}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

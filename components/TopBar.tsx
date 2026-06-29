@@ -1,5 +1,6 @@
 "use client";
 
+import type { PreviewRunPhase } from "@/hooks/usePreview";
 import type { WorkbenchViewMode } from "@/lib/workbenchStore";
 
 const btn =
@@ -7,12 +8,14 @@ const btn =
 const btnGhost = `${btn} bg-panel2 border-border text-fg hover:border-accent hover:bg-[#222b39]`;
 const btnPrimary = `${btn} bg-accent border-accent text-[#04101f] font-semibold hover:bg-[#79b8ff]`;
 const modeBtn =
-  "h-8 rounded-full px-4 text-[13px] font-semibold transition-colors";
+  "inline-flex h-8 items-center justify-center gap-2 rounded-full px-5 text-[13px] font-semibold transition-colors";
 
 export default function TopBar({
   projName,
   canAct,
   viewMode,
+  previewRunPhase = "idle",
+  previewHasUpdate = false,
   onViewModeChange,
   onHome,
   onRerun,
@@ -21,12 +24,16 @@ export default function TopBar({
   projName: string;
   canAct: boolean;
   viewMode?: WorkbenchViewMode;
+  previewRunPhase?: PreviewRunPhase;
+  previewHasUpdate?: boolean;
   onViewModeChange?: (mode: WorkbenchViewMode) => void;
   onHome?: () => void;
   onRerun: () => void;
   onExport: () => void;
 }) {
   const showModeSwitch = viewMode && onViewModeChange;
+  const previewRefreshing = previewRunPhase !== "idle";
+  const previewNotified = !previewRefreshing && previewHasUpdate;
 
   return (
     <div className="h-12 flex-none flex items-center gap-3 px-4 bg-panel border-b border-border">
@@ -57,7 +64,24 @@ export default function TopBar({
             type="button"
             onClick={() => onViewModeChange("preview")}
           >
-            ◉ Preview
+            <span className="relative inline-flex h-2.5 w-2.5 items-center justify-center">
+              {previewRefreshing && (
+                <span className="absolute h-2.5 w-2.5 animate-ping rounded-full bg-accent opacity-60" />
+              )}
+              <span
+                className={
+                  "relative h-2 w-2 rounded-full border transition-all " +
+                  (previewRefreshing
+                    ? "border-accent bg-accent shadow-[0_0_12px_#58a6ff]"
+                    : previewNotified
+                      ? "border-accent bg-accent shadow-[0_0_9px_#58a6ff]"
+                    : viewMode === "preview"
+                      ? "border-accent bg-accent/70"
+                      : "border-muted bg-transparent")
+                }
+              />
+            </span>
+            Preview
           </button>
           <button
             className={

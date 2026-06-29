@@ -3,6 +3,7 @@
 import type { RefObject } from "react";
 import { RUNNER_HTML } from "@/lib/sandbox/runner";
 import type { Status, Overlay } from "@/lib/types";
+import type { PreviewRunPhase } from "@/hooks/usePreview";
 
 const LED: Record<Status["kind"], string> = {
   "": "bg-[#3a4150]",
@@ -26,6 +27,7 @@ export default function PreviewPanel({
   overlay,
   setOverlay,
   previewActive,
+  previewRunPhase,
   canAct,
   onRerun,
   onExport,
@@ -35,10 +37,19 @@ export default function PreviewPanel({
   overlay: Overlay;
   setOverlay: (fn: (o: Overlay) => Overlay) => void;
   previewActive: boolean;
+  previewRunPhase: PreviewRunPhase;
   canAct: boolean;
   onRerun: () => void;
   onExport: () => void;
 }) {
+  const refreshing = previewRunPhase !== "idle";
+  const refreshingText: Record<PreviewRunPhase, string> = {
+    idle: "",
+    reading: "正在读取项目文件",
+    compiling: "正在编译项目",
+    running: "正在刷新预览",
+  };
+
   return (
     <div className="grid min-w-0 h-full flex-1 grid-rows-[42px_39px_minmax(0,1fr)] bg-[#151923]">
       <div className="flex flex-none items-center justify-between gap-3 border-b border-[#2a3142] px-4 text-[12px] text-muted">
@@ -78,8 +89,20 @@ export default function PreviewPanel({
           sandbox="allow-scripts"
           srcDoc={RUNNER_HTML}
           title="preview"
-          className="block h-full w-full rounded-lg border border-[#2a3142] bg-white shadow-[0_18px_42px_rgba(0,0,0,0.24)]"
+          className={
+            "block h-full w-full rounded-lg border border-[#2a3142] bg-white shadow-[0_18px_42px_rgba(0,0,0,0.24)] transition " +
+            (refreshing ? "opacity-45 blur-[1px]" : "opacity-100")
+          }
         />
+
+        {refreshing && (
+          <div className="absolute inset-3 z-[2] flex items-center justify-center rounded-lg bg-[#0b0f14]/45 backdrop-blur-[1px]">
+            <div className="inline-flex items-center gap-2 rounded-lg border border-[#345174] bg-[#111821]/95 px-3.5 py-2 text-[12.5px] font-medium text-[#9dc7ff] shadow-[0_16px_48px_rgba(0,0,0,0.35)]">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-[#375f8e] border-t-accent" />
+              {refreshingText[previewRunPhase]}
+            </div>
+          </div>
+        )}
 
         {overlay.show && (
           <div className="absolute inset-3 z-[2] flex flex-col overflow-auto rounded-lg border border-[#384054] bg-bg/[0.92] p-[22px] backdrop-blur-[2px]">
