@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GenerateImageInputImageSource, ImageAspectRatio } from "./image";
 import { ToolResultType } from "./tool";
 
 export const ListFilesArgsSchema = z.object({}).strict();
@@ -31,6 +32,33 @@ export const InspectFigmaDesignArgsSchema = z.object({
   figmaUrl: z.string().url(),
   maxDepth: z.number().int().min(1).max(8).optional(),
   includeAssets: z.boolean(),
+}).strict();
+
+export const GenerateImageItemSchema = z.object({
+  label: z.string().min(1).max(80).optional(),
+  prompt: z.string().min(1).max(4000),
+  aspectRatio: z.enum([
+    ImageAspectRatio.Square,
+    ImageAspectRatio.FourThree,
+    ImageAspectRatio.ThreeTwo,
+    ImageAspectRatio.SixteenNine,
+    ImageAspectRatio.TwentyOneNine,
+    ImageAspectRatio.NineSixteen,
+  ]).optional(),
+  inputImages: z.array(z.discriminatedUnion("source", [
+    z.object({
+      source: z.literal(GenerateImageInputImageSource.Attachment),
+      attachmentId: z.string().uuid(),
+    }).strict(),
+    z.object({
+      source: z.literal(GenerateImageInputImageSource.ProjectAsset),
+      assetId: z.string().uuid(),
+    }).strict(),
+  ])).max(4).optional(),
+}).strict();
+
+export const GenerateImageArgsSchema = z.object({
+  images: z.array(GenerateImageItemSchema).min(1).max(4),
 }).strict();
 
 export const ReplyArgsSchema = z.object({

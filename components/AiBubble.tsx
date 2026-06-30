@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import Spinner from "./Spinner";
 import MarkdownMessage from "./MarkdownMessage";
 import FigmaIntegrationCard from "./FigmaIntegrationCard";
+import ImageRunCard from "./ImageRunCard";
 import type { AgentFileChange } from "@/lib/types";
 import type { Message, Phase } from "@/lib/types";
 import { useConversationStore } from "@/lib/conversationStore";
@@ -56,7 +57,7 @@ export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => vo
         </div>
       )}
 
-      {m.attempts.length === 0 && busy && !m.chatText && !m.fileChanges?.length && (
+      {m.attempts.length === 0 && busy && !m.chatText && !m.fileChanges?.length && !m.imageRuns?.length && (
         <span>
           <Spinner /> {t("generating")}
         </span>
@@ -82,6 +83,10 @@ export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => vo
           ))}
         </div>
       ) : null}
+
+      {m.imageRuns?.map((run) => (
+        <ImageRunCard key={run.runId} run={run} onResume={onResume} />
+      ))}
 
       {busy && (m.fileChanges?.length || m.chatText) && !m.summary && (
         <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-border bg-codebg px-2.5 py-1.5 text-[12.5px] text-muted">

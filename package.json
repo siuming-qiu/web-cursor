@@ -5,6 +5,7 @@
   "scripts": {
     "predev": "node scripts/copy-wasm.mjs",
     "dev": "next dev",
+    "dev:runner": "node scripts/image-runner-dev.mjs",
     "prebuild": "node scripts/copy-wasm.mjs",
     "build": "next build",
     "start": "next start",

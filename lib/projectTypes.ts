@@ -1,3 +1,5 @@
+import type { ImageRunView } from "@/lib/types";
+
 export type Project = {
   id: string;
   title: string;
@@ -38,6 +40,7 @@ export type StoredMessage = {
   role: "user" | "assistant" | "tool" | "system";
   content: string;
   meta?: unknown;
+  imageRuns?: ImageRunView[];
 };
 
 export function formatTime(value?: string, locale = "zh") {

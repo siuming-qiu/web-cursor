@@ -10,10 +10,11 @@ import { useCallback, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { postToolResult, streamChat } from "@/lib/chatClient";
 import { useConversationStore } from "@/lib/conversationStore";
-import type { AgentFileChange, Message, SendAttachment, Status } from "@/lib/types";
+import type { AgentFileChange, ImageRunView, Message, SendAttachment, Status } from "@/lib/types";
 import type { ProjectFileSummary } from "@/lib/projectTypes";
 import type { ChatEvent, ChatTurn } from "@/types/chat";
 import { ChatEventType } from "@/types/chat";
+import { ImageJobStatus, ImageRunStatus } from "@/types/image";
 import { isIntegrationCardMeta } from "@/types/integration";
 import { ToolName, ToolResultType, type ToolResult } from "@/types/tool";
 
@@ -25,6 +26,7 @@ type StoredMessage = {
   role: "user" | "assistant" | "tool" | "system";
   content: string;
   meta?: unknown;
+  imageRuns?: ImageRunView[];
 };
 
 type ProjectRef = {
@@ -146,8 +148,19 @@ export function useChat(deps: UseChatDeps) {
             role: "ai",
             attempts: [],
             chatText: row.content,
+            imageRuns: row.imageRuns,
             integrationCard: isIntegrationCardMeta(row.meta) ? row.meta : undefined,
           });
+        } else if (row.role === "assistant") {
+          if (row.imageRuns?.length) {
+            restored.push({
+              id: row.id,
+              role: "ai",
+              attempts: [],
+              imageRuns: row.imageRuns,
+              integrationCard: isIntegrationCardMeta(row.meta) ? row.meta : undefined,
+            });
+          }
         }
       }
       setMessages(restored);
@@ -201,6 +214,31 @@ export function useChat(deps: UseChatDeps) {
               deps.setPreviewStatus({ kind: "err", text: t("toolFailed", { name: ev.name }) });
               setAgentActivity(t("toolFailedHandling", { name: ev.name }));
             }
+          } else if (ev.type === ChatEventType.ToolPending) {
+            updateAi((m) => ({
+              ...m,
+              imageRuns: [
+                ...(m.imageRuns ?? []),
+                {
+                  runId: ev.runId,
+                  toolCallId: ev.id,
+                  status: ImageRunStatus.Pending,
+                  resumeOnTerminal: true,
+                  jobs: ev.jobs.map((job) => ({
+                    id: job.jobId,
+                    status: ImageJobStatus.Pending,
+                    input: {
+                      label: job.label,
+                      prompt: job.prompt,
+                      aspectRatio: job.aspectRatio,
+                      inputImages: job.inputImages,
+                    },
+                  })),
+                },
+              ],
+            }));
+            deps.setPreviewStatus({ kind: "load", text: t("generatingImages") });
+            setAgentActivity(t("generatingImages"));
           } else if (ev.type === ChatEventType.FilesChanged) {
             filesChanged = true;
             if (ev.path && ev.operation) {

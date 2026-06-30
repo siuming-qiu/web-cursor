@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { ChatAttachmentRefSchema } from "./attachment";
 import { ToolResultSchema } from "./toolSchema";
+import type { PendingImageJob } from "./image";
 import type { IntegrationCardMeta } from "./integration";
-import type { ToolName } from "./tool";
+import { ToolName, type ToolName as ToolNameType } from "./tool";
 
 export const ChatTurnSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -31,6 +32,7 @@ export const ChatEventType = {
   Chat: "chat",
   ToolsCall: "tools_call",
   ToolResult: "tool_result",
+  ToolPending: "tool_pending",
   FilesChanged: "files_changed",
   IntegrationCard: "integration_card",
   Title: "title",
@@ -54,8 +56,15 @@ export type ChatEvent =
   // 旧前端仍会处理 code；新后端不再发送，等前端切到 files/tool events 后删除。
   | { type: typeof ChatEventType.Code; delta: string }
   | { type: typeof ChatEventType.Chat; delta: string }
-  | { type: typeof ChatEventType.ToolsCall; index: number; name: ToolName | string; id: string }
-  | { type: typeof ChatEventType.ToolResult; name: ToolName | string; status: "ok" | "error" }
+  | { type: typeof ChatEventType.ToolsCall; index: number; name: ToolNameType | string; id: string }
+  | { type: typeof ChatEventType.ToolResult; name: ToolNameType | string; status: "ok" | "error" }
+  | {
+      type: typeof ChatEventType.ToolPending;
+      id: string;
+      name: typeof ToolName.GenerateImage;
+      runId: string;
+      jobs: PendingImageJob[];
+    }
   | { type: typeof ChatEventType.IntegrationCard; meta: IntegrationCardMeta }
   | {
       type: typeof ChatEventType.FilesChanged;

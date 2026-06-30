@@ -5,8 +5,11 @@
  * [PROTOCOL]: 只 append 兜底 tool result，不软删、不重排历史；LLM 上下文最终校验在 context.ts。
  */
 import "server-only";
+import { and, eq, isNull } from "drizzle-orm";
+import { db } from "@/server/db";
+import { imageRuns } from "@/server/db/schema";
 import { appendMessage, listMessages } from "./messages";
-import { ToolResultType, type ToolCallMeta } from "@/types/tool";
+import { ToolName, ToolResultType, type ToolCallMeta } from "@/types/tool";
 
 type DbMessage = Awaited<ReturnType<typeof listMessages>>[number];
 
@@ -31,6 +34,18 @@ export function findUnclosedToolCall(rows: DbMessage[]): ToolCallMeta | null {
 export async function closeInterruptedToolCall(conversationId: string, rows: DbMessage[]) {
   const missing = findUnclosedToolCall(rows);
   if (!missing) return false;
+  if (missing.name === ToolName.GenerateImage) {
+    const [run] = await db
+      .select({ id: imageRuns.id })
+      .from(imageRuns)
+      .where(and(
+        eq(imageRuns.conversationId, conversationId),
+        eq(imageRuns.toolCallId, missing.id),
+        isNull(imageRuns.deletedAt),
+      ))
+      .limit(1);
+    if (run) return false;
+  }
 
   await appendMessage(conversationId, {
     role: "tool",

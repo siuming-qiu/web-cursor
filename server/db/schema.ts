@@ -12,6 +12,18 @@ import {
   pgTable, uuid, text, timestamp, jsonb, bigint, index, uniqueIndex, integer,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type {
+  GenerateImageItemInput,
+  GenerateImageJobResult,
+  GenerateImageRunResult,
+  GeneratedImageMimeType,
+  ImageAssetSource,
+  ImageJobError,
+  ImageJobStatus,
+  ImageProvider,
+  ImageProviderModel,
+  ImageRunStatus,
+} from "../../types/image";
 
 export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -57,6 +69,67 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 }, (t) => ({ convIdx: index("idx_messages_conv").on(t.conversationId, t.seq) }));
+
+export const imageRuns = pgTable("image_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ownerId: text("owner_id").notNull(),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  conversationId: uuid("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  toolCallId: text("tool_call_id").notNull(),
+  status: text("status").$type<ImageRunStatus>().notNull(),
+  result: jsonb("result").$type<GenerateImageRunResult>(),
+  error: jsonb("error").$type<ImageJobError>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => ({
+  ownerStatusIdx: index("idx_image_runs_owner_status").on(t.ownerId, t.status, t.createdAt),
+  conversationStatusIdx: index("idx_image_runs_conversation_status").on(t.conversationId, t.status, t.createdAt),
+  toolCallUnique: uniqueIndex("uq_image_runs_tool_call").on(t.conversationId, t.toolCallId).where(sql`${t.deletedAt} is null`),
+}));
+
+export const imageJobs = pgTable("image_jobs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  runId: uuid("run_id").notNull().references(() => imageRuns.id, { onDelete: "cascade" }),
+  status: text("status").$type<ImageJobStatus>().notNull(),
+  input: jsonb("input").$type<GenerateImageItemInput>().notNull(),
+  result: jsonb("result").$type<GenerateImageJobResult>(),
+  error: jsonb("error").$type<ImageJobError>(),
+  provider: text("provider").$type<ImageProvider>().notNull(),
+  providerModel: text("provider_model").$type<ImageProviderModel>().notNull(),
+  providerJobId: text("provider_job_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => ({
+  runStatusIdx: index("idx_image_jobs_run_status").on(t.runId, t.status, t.createdAt),
+  providerPollIdx: index("idx_image_jobs_provider_poll").on(t.provider, t.providerModel, t.status, t.lastPolledAt),
+}));
+
+export const projectAssets = pgTable("project_assets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ownerId: text("owner_id").notNull(),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  imageJobId: uuid("image_job_id").references(() => imageJobs.id, { onDelete: "set null" }),
+  source: text("source").$type<ImageAssetSource>().notNull(),
+  mimeType: text("mime_type").$type<GeneratedImageMimeType>().notNull(),
+  blobPath: text("blob_path").notNull(),
+  publicUrl: text("public_url").notNull(),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => ({
+  projectIdx: index("idx_project_assets_project").on(t.projectId, t.createdAt),
+  ownerIdx: index("idx_project_assets_owner").on(t.ownerId, t.createdAt),
+  imageJobIdx: index("idx_project_assets_image_job").on(t.imageJobId),
+}));
 
 export const chatAttachments = pgTable("chat_attachments", {
   id: uuid("id").primaryKey(),

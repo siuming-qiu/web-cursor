@@ -138,6 +138,83 @@ export const toolDefinitions = [
     },
   },
   {
+    name: ToolName.GenerateImage,
+    description:
+      "异步生成一组网页视觉图片资产。用于独立站、营销页、产品页需要 hero 图、产品场景图、功能配图、背景视觉等真实图片资产时调用。prompt 是唯一生图语义来源；label 只用于前端展示。",
+    parameters: {
+      type: "object",
+      properties: {
+        images: {
+          type: "array",
+          minItems: 1,
+          maxItems: 4,
+          items: {
+            type: "object",
+            properties: {
+              label: {
+                type: "string",
+                description: "给用户看的简短名称，例如 Hero visual。只用于 UI 展示，不影响生图语义。",
+              },
+              prompt: {
+                type: "string",
+                description: "完整图片生成提示词，必须描述内容、风格、用途和构图；不要依赖 label 表达语义。",
+              },
+              aspectRatio: {
+                type: "string",
+                enum: ["1:1", "4:3", "3:2", "16:9", "21:9", "9:16"],
+                description: "期望构图比例。如果 provider 不支持显式比例，后端会作为 prompt 约束处理。",
+              },
+              inputImages: {
+                type: "array",
+                maxItems: 4,
+                description:
+                  "可选参考图片。只能引用当前会话已上传附件或项目内已有资产；不要传任意 URL 或 base64。",
+                items: {
+                  oneOf: [
+                    {
+                      type: "object",
+                      properties: {
+                        source: {
+                          type: "string",
+                          enum: ["attachment"],
+                        },
+                        attachmentId: {
+                          type: "string",
+                          description: "当前会话附件 id，必须来自用户消息列出的 attachmentId。",
+                        },
+                      },
+                      required: ["source", "attachmentId"],
+                      additionalProperties: false,
+                    },
+                    {
+                      type: "object",
+                      properties: {
+                        source: {
+                          type: "string",
+                          enum: ["project_asset"],
+                        },
+                        assetId: {
+                          type: "string",
+                          description: "项目资产 id，必须来自已有工具结果或资产查询结果。",
+                        },
+                      },
+                      required: ["source", "assetId"],
+                      additionalProperties: false,
+                    },
+                  ],
+                },
+              },
+            },
+            required: ["prompt"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["images"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: ToolName.Reply,
     description: "需求不清或不需要修改代码时，用自然语言回复用户。",
     parameters: {

@@ -13,8 +13,10 @@ import { Loader2, MessageSquare, Plus } from "lucide-react";
 import { req } from "@/lib/api";
 import { useWorkbenchController } from "@/hooks/useWorkbenchController";
 import type { ProjectDetail, StoredMessage } from "@/lib/projectTypes";
+import type { ImageRunView } from "@/lib/types";
 import { formatTime } from "@/lib/projectTypes";
 import { useWorkbenchStore } from "@/lib/workbenchStore";
+import { ToolName } from "@/types/tool";
 import TopBar from "@/components/TopBar";
 import ChatPanel from "@/components/ChatPanel";
 import EditorPanel from "@/components/EditorPanel";
@@ -27,6 +29,27 @@ const REQUIRED_PROJECT_FILES = ["package.json", "index.html", "src/main.tsx", "s
 function hasCompleteReactProject(files: { path: string }[]) {
   const paths = new Set(files.map((file) => file.path));
   return REQUIRED_PROJECT_FILES.every((path) => paths.has(path));
+}
+
+function assistantToolCallIds(meta: unknown): string[] {
+  const toolCalls = (meta as { toolCalls?: { id?: unknown; name?: unknown }[] } | null)?.toolCalls;
+  if (!Array.isArray(toolCalls)) return [];
+  return toolCalls
+    .filter((toolCall) => toolCall.name === ToolName.GenerateImage && typeof toolCall.id === "string")
+    .map((toolCall) => toolCall.id as string);
+}
+
+function attachImageRuns(rows: StoredMessage[], imageRuns: ImageRunView[]): StoredMessage[] {
+  const byToolCallId = new Map<string, ImageRunView[]>();
+  for (const run of imageRuns) {
+    byToolCallId.set(run.toolCallId, [...(byToolCallId.get(run.toolCallId) ?? []), run]);
+  }
+
+  return rows.map((row) => {
+    if (row.role !== "assistant") return row;
+    const runs = assistantToolCallIds(row.meta).flatMap((toolCallId) => byToolCallId.get(toolCallId) ?? []);
+    return runs.length ? { ...row, imageRuns: runs } : row;
+  });
 }
 
 function WorkbenchSkeleton() {
@@ -136,8 +159,15 @@ export default function Workbench({ projectId }: { projectId?: string }) {
       if (!projectDetail) return;
       setLoadingConversationId(conversationId);
       try {
-        const rows = await req<StoredMessage[]>("GET", `/api/conversations/${conversationId}/messages`);
-        await restoreConversation({ id: projectDetail.id, title: projectDetail.title }, conversationId, rows);
+        const [rows, imageRuns] = await Promise.all([
+          req<StoredMessage[]>("GET", `/api/conversations/${conversationId}/messages`),
+          req<ImageRunView[]>("GET", `/api/conversations/${conversationId}/image-runs`),
+        ]);
+        await restoreConversation(
+          { id: projectDetail.id, title: projectDetail.title },
+          conversationId,
+          attachImageRuns(rows, imageRuns),
+        );
       } catch (e) {
         showToast(String(e instanceof Error ? e.message : e));
       } finally {

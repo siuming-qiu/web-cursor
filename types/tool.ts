@@ -8,6 +8,7 @@ export const ToolName = {
   RunPreview: "run_preview",
   InspectAttachment: "inspect_attachment",
   InspectFigmaDesign: "inspect_figma_design",
+  GenerateImage: "generate_image",
 } as const;
 
 export type ToolName = typeof ToolName[keyof typeof ToolName];

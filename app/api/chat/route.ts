@@ -1,6 +1,6 @@
 /**
  * [INPUT]: kind=user 的用户消息，或 kind=resume 的已闭合 transcript 续写请求
- * [OUTPUT]: SSE(init/tools_call/tool_result/files_changed/chat/done/error)，并落库完整 transcript
+ * [OUTPUT]: SSE(init/tools_call/tool_result/tool_pending/files_changed/chat/done/error)，并落库完整 transcript
  * [POS]: A 域 LLM Agent loop —— 持 key、读 DB transcript、执行后端文件工具、流式转发
  * [PROTOCOL]: LLM 工具由 server/tools/definitions.ts 定义，由 server/tools/executor.ts 执行；
  *   文件当前态只在 project_files，不再从 assistant message 恢复代码。
@@ -225,6 +225,18 @@ async function runAgentLoop({
       }
 
       const result = await executeToolCall(toolCall, ctx);
+      if (result.status === "pending" && result.tool === ToolName.GenerateImage) {
+        send({
+          type: ChatEventType.ToolPending,
+          id: toolCall.id,
+          name: ToolName.GenerateImage,
+          runId: result.runId,
+          jobs: result.jobs,
+        });
+        send({ type: ChatEventType.Done });
+        return;
+      }
+
       await appendMessage(conversationId, {
         role: "tool",
         content: JSON.stringify(result),

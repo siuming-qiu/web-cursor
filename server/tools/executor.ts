@@ -9,6 +9,7 @@ import { z } from "zod";
 import { inspectAttachment, AttachmentError, AttachmentErrorCode } from "@/server/attachments";
 import { inspectFigmaDesign } from "@/server/figma/inspect";
 import { FigmaErrorCode, FigmaInspectError, type FigmaDesignContext } from "@/server/figma/types";
+import { createPendingImageRun, pendingImageRunResult } from "@/server/image/jobs";
 import {
   deleteProjectFile,
   FileOperationError,
@@ -20,6 +21,7 @@ import {
 } from "@/server/files";
 import {
   DeleteFileArgsSchema,
+  GenerateImageArgsSchema,
   InspectAttachmentArgsSchema,
   InspectFigmaDesignArgsSchema,
   ListFilesArgsSchema,
@@ -74,6 +76,7 @@ export type ToolExecutionResult =
       observations: string;
     }
   | FigmaDesignContext
+  | ReturnType<typeof pendingImageRunResult>
   | { status: "ok"; tool: typeof ToolName.Reply; message: string }
   | {
       status: "error";
@@ -150,6 +153,17 @@ export async function executeToolCall(
           maxDepth: args.maxDepth,
           includeAssets: args.includeAssets,
         });
+      }
+      case ToolName.GenerateImage: {
+        const args = GenerateImageArgsSchema.parse(parseArgs(toolCall.arguments));
+        const run = await createPendingImageRun({
+          ownerId: ctx.ownerId,
+          projectId: ctx.projectId,
+          conversationId: ctx.conversationId,
+          toolCallId: toolCall.id,
+          input: args,
+        });
+        return pendingImageRunResult(run);
       }
       case ToolName.Reply: {
         const args = ReplyArgsSchema.parse(parseArgs(toolCall.arguments));

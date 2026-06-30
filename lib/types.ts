@@ -1,6 +1,14 @@
 /** agent 运行过程在 UI 上的状态模型，组件与 useChat 共享。 */
 
 import type { AttachmentSummary } from "@/types/attachment";
+import type {
+  GenerateImageItemInput,
+  GenerateImageJobResult,
+  GenerateImageRunResult,
+  ImageJobError,
+  ImageJobStatus,
+  ImageRunStatus,
+} from "@/types/image";
 import type { IntegrationCardMeta } from "@/types/integration";
 
 export type Phase =
@@ -22,6 +30,24 @@ export type AgentFileChange = {
   operation: "write" | "delete" | "rename";
   path: string;
   oldPath?: string;
+};
+
+export type ImageJobView = {
+  id: string;
+  status: ImageJobStatus;
+  input: GenerateImageItemInput;
+  result?: GenerateImageJobResult | null;
+  error?: ImageJobError | null;
+};
+
+export type ImageRunView = {
+  runId: string;
+  toolCallId: string;
+  status: ImageRunStatus;
+  jobs: ImageJobView[];
+  result?: GenerateImageRunResult | null;
+  error?: ImageJobError | null;
+  resumeOnTerminal?: boolean;
 };
 
 export type UserMessageAttachment = AttachmentSummary & {
@@ -49,6 +75,7 @@ export type Message =
       diff?: string;
       chatText?: string; // AI 直接回话/提问（reply），非写代码时显示
       fileChanges?: AgentFileChange[];
+      imageRuns?: ImageRunView[];
       integrationCard?: IntegrationCardMeta;
     };
 
