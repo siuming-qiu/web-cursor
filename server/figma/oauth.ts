@@ -203,22 +203,24 @@ export async function completeFigmaOAuthCallback(req: Request, state: string, co
   const token = await exchangeCode(req, code, row.codeVerifier);
   const now = new Date();
 
-  await db
-    .update(figmaConnections)
-    .set({ revokedAt: now, updatedAt: now })
-    .where(and(eq(figmaConnections.ownerId, row.ownerId), isNull(figmaConnections.revokedAt)));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(figmaConnections)
+      .set({ revokedAt: now, updatedAt: now })
+      .where(and(eq(figmaConnections.ownerId, row.ownerId), isNull(figmaConnections.revokedAt)));
 
-  await db.insert(figmaConnections).values({
-    ownerId: row.ownerId,
-    figmaUserId: token.user_id_string,
-    accessTokenEncrypted: encryptToken(token.access_token),
-    refreshTokenEncrypted: encryptToken(token.refresh_token),
-    expiresAt: expiresAtFrom(token),
-    scopes: [...FIGMA_OAUTH_SCOPES],
-    updatedAt: now,
+    await tx.insert(figmaConnections).values({
+      ownerId: row.ownerId,
+      figmaUserId: token.user_id_string,
+      accessTokenEncrypted: encryptToken(token.access_token),
+      refreshTokenEncrypted: encryptToken(token.refresh_token),
+      expiresAt: expiresAtFrom(token),
+      scopes: [...FIGMA_OAUTH_SCOPES],
+      updatedAt: now,
+    });
+
+    await tx.update(oauthStates).set({ consumedAt: now }).where(eq(oauthStates.id, row.id));
   });
-
-  await db.update(oauthStates).set({ consumedAt: now }).where(eq(oauthStates.id, row.id));
 
   return row.redirectTo;
 }
