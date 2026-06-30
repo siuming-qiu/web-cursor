@@ -178,6 +178,15 @@
     "refresh": "刷新状态",
     "popupBlocked": "浏览器拦截了 Figma 授权弹窗，请允许弹窗后重试。"
   },
+  "FigmaCallback": {
+    "successTitle": "Figma 已连接",
+    "successDescription": "授权已完成。这个窗口会自动关闭，你可以回到 Web Cursor 继续生成。",
+    "errorTitle": "Figma 连接失败",
+    "errorDescription": "授权流程没有完成。请关闭此窗口后重试。",
+    "closing": "正在关闭窗口…",
+    "closeWindow": "关闭窗口",
+    "backToApp": "回到 Web Cursor"
+  },
   "Export": {
     "title": "导出为静态 HTML",
     "description": "把当前结果导出成一个 .html 文件，在浏览器打开即可运行（依赖走 esm.sh CDN）。",

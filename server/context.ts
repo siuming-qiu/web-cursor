@@ -9,7 +9,7 @@ import "server-only";
 import type OpenAI from "openai";
 import type { messages } from "./db/schema";
 import type { AttachmentSummary } from "@/types/attachment";
-import type { ToolCallMeta } from "@/types/tool";
+import { ToolResultType, type ToolCallMeta } from "@/types/tool";
 
 type DbMessage = typeof messages.$inferSelect;        // drizzle 自动推断的行类型
 type LLMMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
@@ -29,34 +29,69 @@ function userContent(content: string, attachments: AttachmentSummary[] | undefin
   ].join("\n");
 }
 
+function assistantToolMessage(toolCalls: ToolCallMeta[]): LLMMessage {
+  return {
+    role: "assistant",
+    content: "",
+    tool_calls: toolCalls.map((toolCall) => ({
+      id: toolCall.id,
+      type: "function" as const,
+      function: { name: toolCall.name, arguments: toolCall.arguments ?? "{}" },
+    })),
+  };
+}
+
+function toolMessage(toolCallId: string, content: string): LLMMessage {
+  return { role: "tool", tool_call_id: toolCallId, content };
+}
+
+function missingToolMessage(toolCallId: string): LLMMessage {
+  return toolMessage(
+    toolCallId,
+    JSON.stringify({
+      status: "error",
+      type: ToolResultType.ToolInterrupted,
+      message: "Tool result was missing from the stored transcript.",
+    }),
+  );
+}
+
 /** DB transcript → DeepSeek messages（function-calling 成对还原）。 */
 export function toLLMMessages(rows: DbMessage[]): LLMMessage[] {
-  return rows.flatMap((m): LLMMessage[] => {
-    const meta = (m.meta ?? {}) as Meta;
+  const result: LLMMessage[] = [];
 
-    if (m.role === "user") return [{ role: "user", content: userContent(m.content, meta.attachments) }];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const meta = (row.meta ?? {}) as Meta;
 
-    if (m.role === "assistant") {
-      if (meta.toolCalls?.length) {
-        // 发起了工具调用的 assistant：代码在 tool_call 的 arguments 里，content 留空
-        return [{
-          role: "assistant",
-          content: "",
-          tool_calls: meta.toolCalls.map((t) => ({
-            id: t.id,
-            type: "function" as const,
-            function: { name: t.name, arguments: t.arguments ?? "{}" },
-          })),
-        }];
+    if (row.role === "user") {
+      result.push({ role: "user", content: userContent(row.content, meta.attachments) });
+      continue;
+    }
+
+    if (row.role === "assistant") {
+      if (!meta.toolCalls?.length) {
+        result.push({ role: "assistant", content: row.content });
+        continue;
       }
-      return [{ role: "assistant", content: m.content }];
+
+      result.push(assistantToolMessage(meta.toolCalls));
+      for (const toolCall of meta.toolCalls) {
+        const next = rows[i + 1];
+        const nextMeta = (next?.meta ?? {}) as Meta;
+        if (next?.role === "tool" && nextMeta.toolCallId === toolCall.id) {
+          result.push(toolMessage(toolCall.id, next.content));
+          i += 1;
+        } else {
+          result.push(missingToolMessage(toolCall.id));
+        }
+      }
+      continue;
     }
 
-    if (m.role === "tool") {
-      // 必须带 tool_call_id，且紧跟它对应的 assistant.tool_calls
-      return [{ role: "tool", tool_call_id: meta.toolCallId ?? "", content: m.content }];
-    }
+    // Orphan or late tool messages are invalid for the LLM API. They are only
+    // included when consumed immediately after their assistant.tool_calls above.
+  }
 
-    return []; // system 跳过（外层单独加）
-  });
+  return result;
 }

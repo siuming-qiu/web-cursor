@@ -173,11 +173,7 @@ async function runAgentLoop({
   }
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    let rows = await listMessages(conversationId);
-    if (await closeInterruptedToolCall(conversationId, rows)) {
-      rows = await listMessages(conversationId);
-    }
-
+    const rows = await listMessages(conversationId);
     const assistant = await collectAssistantTurn(rows, send);
 
     if (assistant.toolCalls.length === 0) {
@@ -245,6 +241,11 @@ async function runAgentLoop({
   }
 
   send({ type: ChatEventType.Error, message: `工具调用超过上限 ${MAX_TOOL_ROUNDS} 轮，已停止。` });
+}
+
+async function closeTailToolCallBeforeModelInput(conversationId: string) {
+  const rows = await listMessages(conversationId);
+  await closeInterruptedToolCall(conversationId, rows);
 }
 
 function streamAgent(args: {
@@ -326,6 +327,7 @@ export async function POST(req: Request) {
   if (body.kind === "resume") {
     const projectId = await getOwnedConversationProjectId(body.conversationId, ownerId);
     if (!projectId) return new Response("Not Found", { status: 404 });
+    await closeTailToolCallBeforeModelInput(body.conversationId);
     return streamAgent({ conversationId: body.conversationId, projectId, ownerId, created: false });
   }
 
@@ -333,6 +335,7 @@ export async function POST(req: Request) {
     const projectId = await getOwnedConversationProjectId(body.conversationId, ownerId);
     if (!projectId) return new Response("Not Found", { status: 404 });
 
+    await closeTailToolCallBeforeModelInput(body.conversationId);
     await appendMessage(body.conversationId, {
       role: "user",
       content: previewFeedbackMessage(body.result),
@@ -378,6 +381,8 @@ export async function POST(req: Request) {
       return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
     }
   }
+
+  await closeTailToolCallBeforeModelInput(conversationId);
 
   await appendMessage(conversationId, {
     role: "user",

@@ -178,6 +178,15 @@
     "refresh": "Refresh status",
     "popupBlocked": "The browser blocked the Figma authorization popup. Allow popups and try again."
   },
+  "FigmaCallback": {
+    "successTitle": "Figma connected",
+    "successDescription": "Authorization is complete. This window will close automatically, then you can continue in Web Cursor.",
+    "errorTitle": "Figma connection failed",
+    "errorDescription": "The authorization flow did not complete. Close this window and try again.",
+    "closing": "Closing window…",
+    "closeWindow": "Close window",
+    "backToApp": "Back to Web Cursor"
+  },
   "Export": {
     "title": "Export static HTML",
     "description": "Export the current result as a .html file that can run in the browser. Dependencies are loaded from the esm.sh CDN.",

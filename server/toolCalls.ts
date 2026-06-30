@@ -1,8 +1,8 @@
 /**
  * [INPUT]: DB transcript rows for one conversation
- * [OUTPUT]: unclosed tool_call metadata, or a synthetic TOOL_INTERRUPTED tool message
- * [POS]: A 域 transcript 协议修复 —— 检测/闭合未返回结果的 tool_call
- * [PROTOCOL]: 只用于兜底中断，不代表真实执行结果；正常结果必须由 tool-results 写入。
+ * [OUTPUT]: synthetic TOOL_INTERRUPTED tool message for an unclosed tool_call
+ * [POS]: A 域 transcript 尾部兜底 —— 请求中断后补齐最后一个未闭合 tool_call
+ * [PROTOCOL]: 只 append 兜底 tool result，不软删、不重排历史；LLM 上下文最终校验在 context.ts。
  */
 import "server-only";
 import { appendMessage, listMessages } from "./messages";
@@ -21,7 +21,7 @@ export function findUnclosedToolCall(rows: DbMessage[]): ToolCallMeta | null {
     const row = rows[i];
     const meta = (row.meta ?? {}) as { toolCalls?: ToolCallMeta[] };
     if (row.role === "assistant" && meta.toolCalls?.length) {
-      return meta.toolCalls.find((t) => !closed.has(t.id)) ?? null;
+      return meta.toolCalls.find((toolCall) => !closed.has(toolCall.id)) ?? null;
     }
   }
 

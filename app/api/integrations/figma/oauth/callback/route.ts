@@ -6,21 +6,46 @@
  */
 import { completeFigmaOAuthCallback, FigmaOAuthError } from "@/server/figma/oauth";
 
+const CALLBACK_PAGE_PATH = "/integrations/figma/oauth/callback";
+
+function callbackPageUrl(origin: string, params: Record<string, string>) {
+  const url = new URL(CALLBACK_PAGE_PATH, origin);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
+  return url;
+}
+
 export async function GET(req: Request) {
+  const url = new URL(req.url);
   try {
-    const url = new URL(req.url);
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
     if (!code || !state) {
-      return Response.json({ error: "Missing OAuth code or state.", code: "FIGMA_BAD_CALLBACK" }, { status: 400 });
+      return Response.redirect(callbackPageUrl(url.origin, {
+        status: "error",
+        code: "FIGMA_BAD_CALLBACK",
+        message: "Missing OAuth code or state.",
+      }), 302);
     }
 
     const redirectTo = await completeFigmaOAuthCallback(req, state, code);
-    return Response.redirect(new URL(redirectTo, url.origin), 302);
+    return Response.redirect(callbackPageUrl(url.origin, {
+      status: "success",
+      returnTo: redirectTo,
+    }), 302);
   } catch (error) {
     if (error instanceof FigmaOAuthError) {
-      return Response.json({ error: error.message, code: error.code }, { status: error.status });
+      return Response.redirect(callbackPageUrl(url.origin, {
+        status: "error",
+        code: error.code,
+        message: error.message,
+      }), 302);
     }
-    return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return Response.redirect(callbackPageUrl(url.origin, {
+      status: "error",
+      code: "FIGMA_CALLBACK_FAILED",
+      message: error instanceof Error ? error.message : String(error),
+    }), 302);
   }
 }

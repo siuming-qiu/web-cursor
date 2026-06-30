@@ -32,6 +32,7 @@ const buttonBase =
   "inline-flex h-8 items-center justify-center gap-2 rounded-md border px-3 text-[12.5px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50";
 const primaryButton = `${buttonBase} border-[#f24e1e] bg-[#f24e1e] text-white hover:bg-[#d94419]`;
 const quietButton = `${buttonBase} border-[#34312b] bg-[#151412] text-[#f7f3ea] hover:border-[#5d554a]`;
+const OAUTH_CALLBACK_MESSAGE_TYPE = "WEB_CURSOR_FIGMA_OAUTH_CALLBACK";
 
 function statusCopy(status: FigmaConnectionStatus, t: ReturnType<typeof useTranslations<"Figma">>) {
   if (status.status === "loading") {
@@ -73,6 +74,14 @@ function toCardStatus(status: ServerFigmaStatus): FigmaConnectionStatus {
 function currentReturnTo() {
   if (typeof window === "undefined") return "/";
   return `${window.location.pathname}${window.location.search}${window.location.hash}` || "/";
+}
+
+function isOAuthCallbackMessage(value: unknown): value is { type: typeof OAUTH_CALLBACK_MESSAGE_TYPE; status: "success" | "error"; code?: string } {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return record.type === OAUTH_CALLBACK_MESSAGE_TYPE
+    && (record.status === "success" || record.status === "error")
+    && (record.code === undefined || typeof record.code === "string");
 }
 
 export default function FigmaIntegrationCard({
@@ -157,6 +166,31 @@ export default function FigmaIntegrationCard({
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
+  }, [log, refreshStatus]);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent<unknown>) => {
+      if (event.origin !== window.location.origin) return;
+      if (!isOAuthCallbackMessage(event.data)) return;
+
+      popupRef.current = null;
+      setPopupBusy(false);
+
+      if (event.data.status === "success") {
+        setPopupError("");
+        log("popup callback -> success");
+        refreshStatus();
+        return;
+      }
+
+      const code = event.data.code ? ` (${event.data.code})` : "";
+      setPopupError(`Figma OAuth failed${code}.`);
+      log(`popup callback -> error${code}`);
+      refreshStatus();
+    };
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
   }, [log, refreshStatus]);
 
   return (
