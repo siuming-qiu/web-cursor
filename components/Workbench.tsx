@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import { Loader2, MessageSquare, Plus } from "lucide-react";
 import { req } from "@/lib/api";
 import { useWorkbenchController } from "@/hooks/useWorkbenchController";
@@ -80,6 +81,8 @@ function WorkbenchSkeleton() {
 
 export default function Workbench({ projectId }: { projectId?: string }) {
   const router = useRouter();
+  const t = useTranslations("Workbench");
+  const locale = useLocale();
   const s = useWorkbenchController();
   const {
     openProject,
@@ -250,19 +253,19 @@ export default function Workbench({ projectId }: { projectId?: string }) {
           {showHistory ? (
             <div className="flex h-full w-[380px] flex-none flex-col border-r border-border bg-panel">
               <div className="h-9 flex-none flex items-center justify-between gap-2 px-[14px] border-b border-border text-[12px] text-muted uppercase tracking-[0.06em]">
-                <span>对话线索</span>
+                <span>{t("conversationThreads")}</span>
                 <button
                   className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-panel2 px-2.5 text-[12px] text-accent transition hover:border-accent hover:bg-[#1b1713]"
                   onClick={newConversation}
                 >
                   <Plus size={14} strokeWidth={2} />
-                  新会话
+                  {t("newConversation")}
                 </button>
               </div>
               <div className="max-h-[160px] flex-none overflow-y-auto border-b border-border p-2">
                 {conversations.length === 0 ? (
                   <div className="rounded-md border border-dashed border-border px-3 py-3 text-[12px] leading-5 text-muted">
-                    当前项目还没有历史会话。直接在下方输入，后端会懒建会话。
+                    {t("emptyHistory")}
                   </div>
                 ) : (
                   <div className="flex flex-col gap-1.5">
@@ -291,8 +294,8 @@ export default function Workbench({ projectId }: { projectId?: string }) {
                             )}
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[13px] text-fg">{conversation.title || "未命名会话"}</span>
-                            <span className="block text-[11px] text-muted">{formatTime(conversation.createdAt)}</span>
+                            <span className="block truncate text-[13px] text-fg">{conversation.title || t("untitledConversation")}</span>
+                            <span className="block text-[11px] text-muted">{formatTime(conversation.createdAt, locale)}</span>
                           </span>
                         </button>
                       );

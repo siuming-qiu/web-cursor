@@ -1,6 +1,7 @@
 "use client";
 
 import { isValidElement, type ReactNode, useState } from "react";
+import { useTranslations } from "next-intl";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
@@ -14,6 +15,7 @@ function nodeText(node: ReactNode): string {
 }
 
 function CopyButton({ value }: { value: string }) {
+  const t = useTranslations("Common");
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -28,10 +30,10 @@ function CopyButton({ value }: { value: string }) {
       type="button"
       className="absolute right-2 top-2 rounded-md border border-border bg-codebg/85 px-2 py-1 text-[11px] font-medium text-muted opacity-0 transition hover:border-accent hover:text-accent group-hover:opacity-100"
       onClick={copy}
-      aria-label="复制代码"
-      title="复制代码"
+      aria-label={t("copy")}
+      title={t("copy")}
     >
-      {copied ? "已复制" : "复制"}
+      {copied ? t("copied") : t("copy")}
     </button>
   );
 }

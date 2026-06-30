@@ -7,6 +7,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { postToolResult, streamChat } from "@/lib/chatClient";
 import { useConversationStore } from "@/lib/conversationStore";
 import type { AgentFileChange, Message, SendAttachment, Status } from "@/lib/types";
@@ -47,17 +48,21 @@ function previewSucceeded(result: ToolResult | null): boolean {
   return result?.status === "ok" && result.type === ToolResultType.RenderOk;
 }
 
-function previewSummary(result: ToolResult | null, shouldRunPreview: boolean) {
+function previewSummary(
+  result: ToolResult | null,
+  shouldRunPreview: boolean,
+  t: ReturnType<typeof useTranslations<"Agent">>
+) {
   if (!shouldRunPreview) {
-    return { summaryKind: "ok" as const, summary: "已更新文件，未触发预览" };
+    return { summaryKind: "ok" as const, summary: t("filesUpdatedNoPreview") };
   }
   if (previewSucceeded(result)) {
-    return { summaryKind: "ok" as const, summary: "已更新文件并渲染成功" };
+    return { summaryKind: "ok" as const, summary: t("filesUpdatedRenderOk") };
   }
   if (result) {
-    return { summaryKind: "fail" as const, summary: "已更新文件，预览失败，未自动回灌给 AI" };
+    return { summaryKind: "fail" as const, summary: t("filesUpdatedPreviewFailed") };
   }
-  return { summaryKind: "fail" as const, summary: "已更新文件，预览没有返回结果" };
+  return { summaryKind: "fail" as const, summary: t("filesUpdatedNoResult") };
 }
 
 function interruptedPreviewResult(message: string): ToolResult {
@@ -73,6 +78,7 @@ function finishAgentTurn() {
 }
 
 export function useChat(deps: UseChatDeps) {
+  const t = useTranslations("Agent");
   const abortRef = useRef({ aborted: false });
   const curAiIdRef = useRef<string>("");
   const lastPromptRef = useRef<string>("");
@@ -159,8 +165,8 @@ export function useChat(deps: UseChatDeps) {
       };
 
       setWriting(true);
-      deps.setPreviewStatus({ kind: "load", text: "AI 正在修改文件…" });
-      setAgentActivity("AI 正在修改文件…");
+      deps.setPreviewStatus({ kind: "load", text: t("modifyingFiles") });
+      setAgentActivity(t("modifyingFiles"));
 
       async function consumeTurn(currentTurn: ChatTurn) {
         let filesChanged = false;
@@ -180,34 +186,34 @@ export function useChat(deps: UseChatDeps) {
           } else if (ev.type === ChatEventType.ToolsCall) {
             if (ev.name === ToolName.RunPreview) {
               previewToolCallId = ev.id;
-              deps.setPreviewStatus({ kind: "load", text: "正在运行预览…" });
-              setAgentActivity("正在运行预览…");
+              deps.setPreviewStatus({ kind: "load", text: t("runningPreview") });
+              setAgentActivity(t("runningPreview"));
             } else if (ev.name === ToolName.WriteFile || ev.name === ToolName.DeleteFile || ev.name === ToolName.RenameFile) {
-              deps.setPreviewStatus({ kind: "load", text: "AI 正在写入文件…" });
-              setAgentActivity("AI 正在写入文件…");
+              deps.setPreviewStatus({ kind: "load", text: t("writingFiles") });
+              setAgentActivity(t("writingFiles"));
             } else if (ev.name === ToolName.ListFiles || ev.name === ToolName.ReadFile) {
-              deps.setPreviewStatus({ kind: "load", text: "AI 正在读取文件…" });
-              setAgentActivity("AI 正在读取文件…");
+              deps.setPreviewStatus({ kind: "load", text: t("readingFiles") });
+              setAgentActivity(t("readingFiles"));
             }
           } else if (ev.type === ChatEventType.ToolResult) {
             if (ev.status === "error") {
-              deps.setPreviewStatus({ kind: "err", text: `${ev.name} 执行失败` });
-              setAgentActivity(`${ev.name} 执行失败，AI 正在处理…`);
+              deps.setPreviewStatus({ kind: "err", text: t("toolFailed", { name: ev.name }) });
+              setAgentActivity(t("toolFailedHandling", { name: ev.name }));
             }
           } else if (ev.type === ChatEventType.FilesChanged) {
             filesChanged = true;
             if (ev.path && ev.operation) {
               appendFileChange({ operation: ev.operation, path: ev.path, oldPath: ev.oldPath });
-              deps.setPreviewStatus({ kind: "load", text: `AI 已更新 ${ev.path}` });
-              setAgentActivity(`AI 已更新 ${ev.path}，继续处理中…`);
+              deps.setPreviewStatus({ kind: "load", text: t("fileUpdated", { path: ev.path }) });
+              setAgentActivity(t("fileUpdatedHandling", { path: ev.path }));
               const handled = await deps.handlePersistedFileChange(ev);
               if (handled) {
                 shouldRunPreviewForFilesChanged ||= handled.shouldRunPreview;
                 filesChangedProjectId = handled.projectId;
               }
             } else {
-              deps.setPreviewStatus({ kind: "load", text: "文件已更新，刷新预览…" });
-              setAgentActivity("文件已更新，准备刷新预览…");
+              deps.setPreviewStatus({ kind: "load", text: t("filesUpdatedRefresh") });
+              setAgentActivity(t("filesUpdatedPrepareRefresh"));
               const projectId = projectIdRef.current;
               if (projectId) {
                 await deps.loadFiles(projectId, APP_ENTRY_PATH);
@@ -217,10 +223,10 @@ export function useChat(deps: UseChatDeps) {
             }
           } else if (ev.type === ChatEventType.Chat) {
             updateAi((m) => ({ ...m, chatText: (m.chatText ?? "") + ev.delta }));
-            setAgentActivity("AI 正在回复…");
+            setAgentActivity(t("replying"));
           } else if (ev.type === ChatEventType.IntegrationCard) {
             updateAi((m) => ({ ...m, integrationCard: ev.meta }));
-            setAgentActivity("等待连接 Figma…");
+            setAgentActivity(t("waitingFigma"));
           } else if (ev.type === ChatEventType.Title) {
             const update = { conversationId: ev.conversationId, title: ev.title, projectTitle: ev.projectTitle };
             setLastTitleUpdate(update);
@@ -249,14 +255,14 @@ export function useChat(deps: UseChatDeps) {
               const preview = result.shouldRunPreviewForFilesChanged && result.filesChangedProjectId
                 ? await deps.runPreview(result.filesChangedProjectId)
                 : null;
-              const summary = previewSummary(preview, Boolean(result.shouldRunPreviewForFilesChanged));
+              const summary = previewSummary(preview, Boolean(result.shouldRunPreviewForFilesChanged), t);
               updateAi((m) => ({
                 ...m,
                 summaryKind: summary.summaryKind,
                 summary: summary.summary,
               }));
             } else {
-              deps.setPreviewStatus({ kind: "", text: "等待你的回复" });
+              deps.setPreviewStatus({ kind: "", text: t("waitingUser") });
             }
             setWriting(false);
             setBusy(false);
@@ -267,7 +273,7 @@ export function useChat(deps: UseChatDeps) {
           const conversationId = convIdRef.current;
           const projectId = projectIdRef.current;
           if (!conversationId || !projectId) {
-            throw new Error("缺少会话或项目信息，无法写入预览结果。");
+            throw new Error(t("missingConversation"));
           }
 
           if (result.filesChanged) {
@@ -278,36 +284,37 @@ export function useChat(deps: UseChatDeps) {
           await postToolResult(
             conversationId,
             result.previewToolCallId,
-            preview ?? interruptedPreviewResult("预览没有返回结果。")
+            preview ?? interruptedPreviewResult(t("previewNoResult"))
           );
 
+          const previewPassed = previewSucceeded(preview);
           deps.setPreviewStatus({
             kind: "load",
-            text: previewSucceeded(preview) ? "预览通过，AI 正在总结…" : "AI 正在根据预览错误修复…",
+            text: previewPassed ? t("previewOkSummarizing") : t("previewErrorFixing"),
           });
-          setAgentActivity(previewSucceeded(preview) ? "预览通过，AI 正在总结…" : "AI 正在根据预览错误修复…");
+          setAgentActivity(previewPassed ? t("previewOkSummarizing") : t("previewErrorFixing"));
           turn = { kind: "resume", conversationId };
         }
 
-        throw new Error(`浏览器工具续写超过上限 ${MAX_CLIENT_TOOL_RESUMES} 轮，已停止。`);
+        throw new Error(t("resumeLimit", { max: MAX_CLIENT_TOOL_RESUMES }));
       } catch (error) {
         setWriting(false);
-        deps.setPreviewStatus({ kind: "err", text: "请求失败", meta: "" });
+        deps.setPreviewStatus({ kind: "err", text: t("requestFailed"), meta: "" });
         deps.onError(error);
-        updateAi((m) => ({ ...m, summaryKind: "fail", summary: "调用后端失败" }));
+        updateAi((m) => ({ ...m, summaryKind: "fail", summary: t("backendFailed") }));
         setBusy(false);
         finishAgentTurn();
         return;
       }
     },
-    [appendFileChange, deps, updateAi]
+    [appendFileChange, deps, t, updateAi]
   );
 
   const send = useCallback(
     (prompt: string, attachments: SendAttachment[] = []) => {
       const p = prompt.trim();
       if (busy || (!p && attachments.length === 0)) return;
-      const messageText = p || "请查看附件。";
+      const messageText = p || t("attachmentOnly");
       lastPromptRef.current = messageText;
       lastAttachmentsRef.current = attachments;
 
@@ -339,12 +346,12 @@ export function useChat(deps: UseChatDeps) {
         setBusy(false);
         setWriting(false);
         finishAgentTurn();
-        deps.setPreviewStatus({ kind: "err", text: "内部错误", meta: "" });
+        deps.setPreviewStatus({ kind: "err", text: t("internalError"), meta: "" });
         deps.onError(err);
-        updateAi((m) => ({ ...m, summaryKind: "fail", summary: "调用后端失败" }));
+        updateAi((m) => ({ ...m, summaryKind: "fail", summary: t("backendFailed") }));
       });
     },
-    [busy, deps, runLoop, updateAi]
+    [busy, deps, runLoop, t, updateAi]
   );
 
   const resume = useCallback(() => {
@@ -363,19 +370,19 @@ export function useChat(deps: UseChatDeps) {
       setBusy(false);
       setWriting(false);
       finishAgentTurn();
-      deps.setPreviewStatus({ kind: "err", text: "内部错误", meta: "" });
+      deps.setPreviewStatus({ kind: "err", text: t("internalError"), meta: "" });
       deps.onError(err);
-      updateAi((m) => ({ ...m, summaryKind: "fail", summary: "调用后端失败" }));
+      updateAi((m) => ({ ...m, summaryKind: "fail", summary: t("backendFailed") }));
     });
-  }, [busy, deps, runLoop, updateAi]);
+  }, [busy, deps, runLoop, t, updateAi]);
 
   const stop = useCallback(() => {
     abortRef.current.aborted = true;
     setBusy(false);
     setWriting(false);
     useConversationStore.getState().stopTurn();
-    deps.setPreviewStatus({ kind: "", text: "已停止" });
-  }, [deps]);
+    deps.setPreviewStatus({ kind: "", text: t("stopped") });
+  }, [deps, t]);
 
   const rerun = useCallback(() => {
     if (lastPromptRef.current) send(lastPromptRef.current, lastAttachmentsRef.current);

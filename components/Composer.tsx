@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { ArrowUp, Paperclip, RefreshCw, Square, X } from "lucide-react";
 import {
   createPendingAttachment,
@@ -33,6 +34,7 @@ export default function Composer({
   onSend: (text: string, attachments?: SendAttachment[]) => void;
   onStop: () => void;
 }) {
+  const t = useTranslations("Composer");
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [error, setError] = useState("");
@@ -95,7 +97,7 @@ export default function Composer({
     const selectedFiles = Array.from(files);
     const slots = MAX_ATTACHMENTS - attachmentsRef.current.length;
     if (slots <= 0) {
-      setError(`最多上传 ${MAX_ATTACHMENTS} 张图片。`);
+      setError(t("tooMany", { max: MAX_ATTACHMENTS }));
       return;
     }
 
@@ -107,7 +109,7 @@ export default function Composer({
         setError(e instanceof Error ? e.message : String(e));
       }
     }
-    if (selectedFiles.length > slots) setError(`最多上传 ${MAX_ATTACHMENTS} 张图片。`);
+    if (selectedFiles.length > slots) setError(t("tooMany", { max: MAX_ATTACHMENTS }));
     if (next.length === 0) return;
 
     setAttachments((prev) => [...prev, ...next]);
@@ -132,7 +134,7 @@ export default function Composer({
     const files = Array.from(dataTransfer.files);
     const imageFiles = files.filter((file) => file.type.startsWith("image/"));
     if (files.length > 0 && imageFiles.length === 0) {
-      setError("只支持拖入 PNG、JPEG、WebP 图片。");
+      setError(t("onlyImages"));
       return;
     }
     addFiles(imageFiles);
@@ -163,7 +165,7 @@ export default function Composer({
     !hasUploading &&
     !hasUploadError &&
     (input.trim().length > 0 || uploadedAttachments.length > 0);
-  const aggregateError = hasUploadError ? "有图片上传失败，请移除或重试后再发送。" : error;
+  const aggregateError = hasUploadError ? t("aggregateError") : error;
 
   return (
     <div className="flex-none border-t border-border bg-panel p-[10px_14px]">
@@ -205,12 +207,12 @@ export default function Composer({
                   />
                   {attachment.status === "uploading" && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/55 text-[10px] font-semibold text-white">
-                      上传中
+                      {t("uploading")}
                     </div>
                   )}
                   {attachment.status === "error" && (
                     <div className="absolute inset-0 flex items-center justify-center bg-red/70 text-[10px] font-semibold text-white">
-                      失败
+                      {t("failed")}
                     </div>
                   )}
                 </div>
@@ -218,10 +220,10 @@ export default function Composer({
                   <div className="truncate text-[11px] leading-4 text-fg">{attachment.name}</div>
                   <div className="text-[10px] leading-4 text-muted">
                     {attachment.status === "uploading"
-                      ? "上传中..."
+                      ? t("uploading")
                       : attachment.status === "error"
-                        ? "上传失败"
-                        : `${formatBytes(attachment.sizeBytes)} · 已上传`}
+                        ? t("uploadFailed")
+                        : `${formatBytes(attachment.sizeBytes)} · ${t("uploaded")}`}
                   </div>
                   {attachment.status === "error" && (
                     <div className="mt-0.5 line-clamp-2 text-[10px] leading-3 text-red">
@@ -234,8 +236,8 @@ export default function Composer({
                     type="button"
                     className="inline-flex h-6 w-6 flex-none items-center justify-center rounded-full text-muted transition hover:bg-white/10 hover:text-accent"
                     onClick={() => uploadAttachment(attachment)}
-                    aria-label="重试上传"
-                    title="重试上传"
+                    aria-label={t("retryUpload")}
+                    title={t("retryUpload")}
                   >
                     <RefreshCw size={13} strokeWidth={2} />
                   </button>
@@ -244,8 +246,8 @@ export default function Composer({
                   type="button"
                   className="inline-flex h-6 w-6 flex-none items-center justify-center rounded-full text-muted transition hover:bg-red/10 hover:text-red"
                   onClick={() => removeAttachment(attachment.id)}
-                  aria-label={`移除 ${attachment.name}`}
-                  title="移除图片"
+                  aria-label={t("removeNamed", { name: attachment.name })}
+                  title={t("removeImage")}
                 >
                   <X size={14} strokeWidth={2} />
                 </button>
@@ -258,7 +260,7 @@ export default function Composer({
           id="chat-composer"
           name="chat-composer"
           className="max-h-36 min-h-[40px] w-full resize-none border-none bg-transparent px-1 pt-1 text-[13.5px] leading-[1.55] text-fg outline-none placeholder:text-muted/70"
-          placeholder="描述你想要的界面…也可以粘贴或拖入截图"
+          placeholder={t("placeholder")}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onPaste={(e) => {
@@ -293,13 +295,13 @@ export default function Composer({
               className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-full text-muted transition hover:bg-white/10 hover:text-fg disabled:cursor-not-allowed disabled:opacity-45"
               onClick={() => fileInputRef.current?.click()}
               disabled={busy || attachments.length >= MAX_ATTACHMENTS}
-              aria-label="上传截图"
-              title="上传 PNG / JPEG / WebP 图片，也支持粘贴或拖拽"
+              aria-label={t("uploadScreenshot")}
+              title={t("uploadHelp")}
             >
               <Paperclip size={17} strokeWidth={2} />
             </button>
             <span className="truncate text-[11px] text-muted">
-              粘贴/拖入图片 · 最多 {MAX_ATTACHMENTS} 张 · 单张 5MB
+              {t("hint", { max: MAX_ATTACHMENTS })}
             </span>
           </div>
 
@@ -308,8 +310,8 @@ export default function Composer({
               className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-full bg-red/15 text-red transition hover:bg-red/25"
               onClick={onStop}
               type="button"
-              aria-label="停止生成"
-              title="停止生成"
+              aria-label={t("stop")}
+              title={t("stop")}
             >
               <Square size={14} fill="currentColor" strokeWidth={2} />
             </button>
@@ -319,8 +321,8 @@ export default function Composer({
               onClick={submit}
               disabled={!canSend}
               type="button"
-              aria-label={hasUploading ? "上传中" : "发送"}
-              title={hasUploading ? "上传中" : "发送"}
+              aria-label={hasUploading ? t("uploading") : t("send")}
+              title={hasUploading ? t("uploading") : t("send")}
             >
               {hasUploading ? "…" : <ArrowUp size={17} strokeWidth={2.4} />}
             </button>

@@ -1,17 +1,12 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useTranslations } from "next-intl";
 import { MessageCircle } from "lucide-react";
 import AiBubble from "./AiBubble";
 import Composer from "./Composer";
 import type { Message, SendAttachment, UserMessageAttachment } from "@/lib/types";
 import { useConversationStore } from "@/lib/conversationStore";
-
-const QUICK = [
-  { label: "一个待办列表", prompt: "做一个待办列表" },
-  { label: "一个计数器", prompt: "做一个计数器" },
-  { label: "一个登录表单", prompt: "做一个登录表单" },
-];
 
 const chipBase =
   "bg-panel2 border border-border rounded-[9px] px-3 py-[9px] text-[13px] text-fg text-left flex items-center gap-[9px] transition hover:border-accent hover:translate-x-[2px]";
@@ -22,6 +17,8 @@ function formatBytes(bytes: number) {
 }
 
 function UserAttachments({ attachments }: { attachments: UserMessageAttachment[] }) {
+  const t = useTranslations("Chat");
+
   return (
     <div className="mt-2 flex max-w-full flex-wrap gap-2">
       {attachments.map((attachment) => (
@@ -32,7 +29,7 @@ function UserAttachments({ attachments }: { attachments: UserMessageAttachment[]
           {attachment.previewUrl ? (
             <img
               src={attachment.previewUrl}
-              alt={attachment.name ?? "图片附件"}
+              alt={attachment.name ?? t("imageAttachment")}
               className="h-10 w-10 flex-none rounded-md object-cover"
             />
           ) : (
@@ -41,7 +38,7 @@ function UserAttachments({ attachments }: { attachments: UserMessageAttachment[]
             </div>
           )}
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[11px] leading-4 text-white/90">{attachment.name ?? "图片附件"}</div>
+            <div className="truncate text-[11px] leading-4 text-white/90">{attachment.name ?? t("imageAttachment")}</div>
             <div className="text-[10px] leading-4 text-white/55">{attachment.mimeType} · {formatBytes(attachment.sizeBytes)}</div>
           </div>
         </div>
@@ -63,8 +60,14 @@ export default function ChatPanel({
   onResume: () => void;
   onStop: () => void;
 }) {
+  const t = useTranslations("Chat");
   const busy = useConversationStore((state) => state.busy);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const quick = [
+    { label: t("quickTodo"), prompt: t("promptTodo") },
+    { label: t("quickCounter"), prompt: t("promptCounter") },
+    { label: t("quickLogin"), prompt: t("promptLogin") },
+  ];
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
@@ -72,17 +75,17 @@ export default function ChatPanel({
   return (
     <div className="flex flex-col min-w-0 h-full w-full bg-panel">
       <div className="h-9 flex-none flex items-center gap-2 px-[14px] border-b border-border text-[12px] text-muted uppercase tracking-[0.06em]">
-        <MessageCircle size={14} strokeWidth={1.8} /> AI 对话 · Agent
+        <MessageCircle size={14} strokeWidth={1.8} /> {t("title")}
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-[18px_16px] flex flex-col gap-4">
         {messages.length === 0 && (
           <div className="text-muted leading-[1.7]">
-            <h3 className="text-fg text-[15px] m-0 mb-1.5">描述你想做的 React 界面</h3>
-            我来帮你写代码、运行，跑挂了还会自己修。
-            <div className="text-[11px] text-muted uppercase tracking-[0.08em] mt-4 mb-0.5">快速开始</div>
+            <h3 className="text-fg text-[15px] m-0 mb-1.5">{t("emptyTitle")}</h3>
+            {t("emptyDescription")}
+            <div className="text-[11px] text-muted uppercase tracking-[0.08em] mt-4 mb-0.5">{t("quickStart")}</div>
             <div className="flex flex-col gap-2 mt-3.5">
-              {QUICK.map((c) => (
+              {quick.map((c) => (
                 <button key={c.label} className={chipBase} onClick={() => onSend(c.prompt)}>
                   <span className="text-accent">⌁</span> {c.label}
                 </button>

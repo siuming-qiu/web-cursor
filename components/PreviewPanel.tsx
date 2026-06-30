@@ -1,6 +1,7 @@
 "use client";
 
 import type { RefObject } from "react";
+import { useTranslations } from "next-intl";
 import { RUNNER_HTML } from "@/lib/sandbox/runner";
 import type { Status, Overlay } from "@/lib/types";
 import type { PreviewRunPhase } from "@/hooks/usePreview";
@@ -42,33 +43,34 @@ export default function PreviewPanel({
   onRerun: () => void;
   onExport: () => void;
 }) {
+  const t = useTranslations("Preview");
   const refreshing = previewRunPhase !== "idle";
   const refreshingText: Record<PreviewRunPhase, string> = {
     idle: "",
-    reading: "正在读取项目文件",
-    compiling: "正在编译项目",
-    running: "正在刷新预览",
+    reading: t("reading"),
+    compiling: t("compiling"),
+    running: t("running"),
   };
 
   return (
     <div className="grid min-w-0 h-full flex-1 grid-rows-[42px_39px_minmax(0,1fr)] bg-panel">
       <div className="flex flex-none items-center justify-between gap-3 border-b border-border px-4 text-[12px] text-muted">
         <div className="min-w-0">
-          <div className="font-semibold text-[13px] tracking-wide text-fg">Preview</div>
+          <div className="font-semibold text-[13px] tracking-wide text-fg">{t("title")}</div>
         </div>
-        <span className="text-[12px] font-semibold text-muted">iframe 沙箱结果</span>
+        <span className="text-[12px] font-semibold text-muted">{t("sandboxResult")}</span>
       </div>
 
       <div className={"flex flex-none items-center gap-3 border-b border-border bg-panel2 px-4 text-[12.5px] " + TEXT[status.kind]}>
         <span className={"h-[9px] w-[9px] shrink-0 rounded-full " + LED[status.kind]} />
-        <span className="shrink-0 font-medium">{status.text || "等待渲染"}</span>
+        <span className="shrink-0 font-medium">{status.text || t("waiting")}</span>
         {status.meta && <span className="text-muted text-[11.5px]">{status.meta}</span>}
         <div className="ml-auto flex items-center gap-2">
           <button className={toolBtn} type="button" disabled={!canAct} onClick={onRerun}>
-            ↻ 重新运行
+            ↻ {t("rerun")}
           </button>
           <button className={toolBtn + " border-accent text-accent"} type="button" disabled={!canAct} onClick={onExport}>
-            ↓ 导出 HTML
+            ↓ {t("exportHtml")}
           </button>
         </div>
       </div>
@@ -79,7 +81,7 @@ export default function PreviewPanel({
             <div className="flex h-16 w-16 items-center justify-center rounded-[12px] border-2 border-dashed border-border bg-codebg text-[26px]">
               ⌨
             </div>
-            生成后在这里预览
+            {t("empty")}
           </div>
         )}
 
@@ -116,14 +118,14 @@ export default function PreviewPanel({
             <div className="mt-auto flex gap-[9px] pt-4">
               {overlay.stack && (
                 <button className={obtn} onClick={() => setOverlay((o) => ({ ...o, showStack: !o.showStack }))}>
-                  {overlay.showStack ? "收起详情" : "查看详情"}
+                  {overlay.showStack ? t("detailsClose") : t("detailsOpen")}
                 </button>
               )}
               <button
                 className="bg-panel2 border border-yellow text-yellow px-3.5 py-[7px] rounded-lg text-[13px]"
                 onClick={() => setOverlay((o) => ({ ...o, show: false }))}
               >
-                关闭
+                {t("close")}
               </button>
             </div>
           </div>

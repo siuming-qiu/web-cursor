@@ -1,10 +1,11 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import Spinner from "./Spinner";
 import MarkdownMessage from "./MarkdownMessage";
 import FigmaIntegrationCard from "./FigmaIntegrationCard";
 import type { AgentFileChange } from "@/lib/types";
-import { PHASE_LABEL, type Message } from "@/lib/types";
+import type { Message, Phase } from "@/lib/types";
 import { useConversationStore } from "@/lib/conversationStore";
 
 type AiMsg = Extract<Message, { role: "ai" }>;
@@ -17,19 +18,28 @@ function numClass(ok: boolean, failed: boolean, active: boolean) {
   return base + "bg-[#2b2a26] text-fg";
 }
 
-function changeLabel(change: AgentFileChange) {
-  if (change.operation === "delete") return "删除";
-  if (change.operation === "rename") return "重命名";
-  return "写入";
-}
-
 export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => void }) {
+  const t = useTranslations("Chat");
   const busy = useConversationStore((state) => state.busy && state.activeAiId === m.id);
   const activityText = useConversationStore((state) => state.activityText);
   const hasHeal =
     m.attempts.length > 1 ||
     m.attempts.some((a) => a.phase === "compile-fail" || a.phase === "runtime-fail");
   const last = m.attempts[m.attempts.length - 1];
+  const phaseLabel: Record<Phase, string> = {
+    writing: t("phaseWriting"),
+    transpiling: t("phaseTranspiling"),
+    running: t("phaseRunning"),
+    ok: t("phaseOk"),
+    "compile-fail": t("phaseCompileFail"),
+    "runtime-fail": t("phaseRuntimeFail"),
+  };
+
+  function changeLabel(change: AgentFileChange) {
+    if (change.operation === "delete") return t("changeDelete");
+    if (change.operation === "rename") return t("changeRename");
+    return t("changeWrite");
+  }
 
   return (
     <>
@@ -48,7 +58,7 @@ export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => vo
 
       {m.attempts.length === 0 && busy && !m.chatText && !m.fileChanges?.length && (
         <span>
-          <Spinner /> 正在生成…
+          <Spinner /> {t("generating")}
         </span>
       )}
 
@@ -76,7 +86,7 @@ export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => vo
       {busy && (m.fileChanges?.length || m.chatText) && !m.summary && (
         <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-border bg-codebg px-2.5 py-1.5 text-[12.5px] text-muted">
           <Spinner />
-          <span>{activityText || "仍在处理…"}</span>
+          <span>{activityText || t("stillWorking")}</span>
         </div>
       )}
 
@@ -93,7 +103,7 @@ export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => vo
               >
                 <span className={numClass(ok, failed, active)}>{ok ? "✓" : failed ? "✕" : a.n}</span>
                 <span>
-                  第 {a.n} 次尝试 · {PHASE_LABEL[a.phase]}
+                  {t("attempt", { n: a.n })} · {phaseLabel[a.phase]}
                 </span>
                 {active && <Spinner className="ml-auto" />}
                 {a.note && <span className="ml-1.5 text-red text-[11px] truncate">{a.note}</span>}
@@ -105,7 +115,7 @@ export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => vo
 
       {!hasHeal && m.attempts.length > 0 && !m.summary && !m.chatText && busy && last && (
         <span>
-          <Spinner /> {PHASE_LABEL[last.phase]}
+          <Spinner /> {phaseLabel[last.phase]}
         </span>
       )}
 

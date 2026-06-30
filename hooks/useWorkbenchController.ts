@@ -7,6 +7,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import { useChat } from "@/hooks/useChat";
 import { usePreview } from "@/hooks/usePreview";
 import { type PersistedFileChange, useProjectFiles } from "@/hooks/useProjectFiles";
@@ -33,16 +34,21 @@ function persistedChangeAffectsPreview(change: PersistedFileChange) {
 }
 
 export function useWorkbenchController() {
+  const tPreview = useTranslations("Preview");
+  const tCommon = useTranslations("Common");
   const files = useProjectFiles();
   const preview = usePreview(files.readProjectFiles);
-  const [projName, setProjName] = useState("未命名项目");
+  const [projName, setProjName] = useState(tCommon("untitledProject"));
 
   const handlePersistedFileChange = useCallback(
     async (change: PersistedFileChange | null, source: "ai" | "user") => {
       if (!change) return null;
       const shouldRunPreview = persistedChangeAffectsPreview(change);
       if (!shouldRunPreview) {
-        preview.setStatus({ kind: "", text: source === "user" ? "文件已保存，未触发预览" : "文件已更新，未触发预览" });
+        preview.setStatus({
+          kind: "",
+          text: source === "user" ? tPreview("fileSavedNoPreview") : tPreview("fileUpdatedNoPreview"),
+        });
       }
       return { projectId: change.projectId, shouldRunPreview };
     },
@@ -55,7 +61,7 @@ export function useWorkbenchController() {
       if (handled?.shouldRunPreview) {
         await preview.runPreview(handled.projectId);
       } else if (change) {
-        preview.setStatus({ kind: "", text: "文件已保存，未触发预览" });
+        preview.setStatus({ kind: "", text: tPreview("fileSavedNoPreview") });
       }
 
       change?.sync?.catch((error) => {
@@ -66,10 +72,10 @@ export function useWorkbenchController() {
           stack: error instanceof Error ? error.stack ?? "" : "",
           showStack: false,
         });
-        preview.setStatus({ kind: "err", text: "后端保存失败" });
+        preview.setStatus({ kind: "err", text: tPreview("saveFailed") });
       });
     },
-    [handlePersistedFileChange, preview.runPreview, preview.setOverlay, preview.setStatus]
+    [handlePersistedFileChange, preview.runPreview, preview.setOverlay, preview.setStatus, tPreview]
   );
 
   const chatDeps = useMemo(() => ({
@@ -108,28 +114,32 @@ export function useWorkbenchController() {
   const chat = useChat(chatDeps);
 
   const openProject = useCallback((project: ProjectRef) => {
-    setProjName(project.title || "未命名项目");
+    setProjName(project.title || tCommon("untitledProject"));
     files.setProjectFiles(project);
     chat.openProjectChat({ id: project.id, title: project.title });
     preview.resetPreview(
-      files.hasCompleteReactProject(project.files ?? []) ? "选择会话或继续输入" : "生成完整 React 项目后可预览"
+      files.hasCompleteReactProject(project.files ?? [])
+        ? tPreview("selectConversation")
+        : tPreview("completeProjectFirst")
     );
   }, [
     chat.openProjectChat,
     files.hasCompleteReactProject,
     files.setProjectFiles,
     preview.resetPreview,
+    tCommon,
+    tPreview,
   ]);
 
   const openConversation = useCallback(
     async (project: ProjectRef, conversationId: string, rows: StoredMessage[]) => {
-      setProjName(project.title || "未命名项目");
+      setProjName(project.title || tCommon("untitledProject"));
       await chat.openConversation({ id: project.id, title: project.title }, conversationId, rows);
       const loadedFiles = await files.loadFiles(project.id, APP_ENTRY_PATH);
       if (files.hasCompleteReactProject(loadedFiles)) {
         await preview.runPreview(project.id);
       } else {
-        preview.resetPreview("生成完整 React 项目后可预览");
+        preview.resetPreview(tPreview("completeProjectFirst"));
       }
     },
     [
@@ -138,6 +148,8 @@ export function useWorkbenchController() {
       files.loadFiles,
       preview.resetPreview,
       preview.runPreview,
+      tCommon,
+      tPreview,
     ]
   );
 

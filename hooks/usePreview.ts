@@ -7,6 +7,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import {
   formatProjectContractErrors,
   validateReactProjectContract,
@@ -30,11 +31,12 @@ function interruptedPreviewResult(message: string): ToolResult {
 }
 
 export function usePreview(readProjectFiles: (projectId: string) => Promise<TranspileProjectFile[]>) {
+  const t = useTranslations("Preview");
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const sandboxRef = useRef<SandboxController | null>(null);
   const runIdRef = useRef(0);
 
-  const [status, setStatus] = useState<Status>({ kind: "", text: "等待生成" });
+  const [status, setStatus] = useState<Status>({ kind: "", text: t("waitingGeneration") });
   const [overlay, setOverlay] = useState<Overlay>(EMPTY_OVERLAY);
   const [hasResult, setHasResult] = useState(false);
   const [previewActive, setPreviewActive] = useState(false);
@@ -87,36 +89,36 @@ export function usePreview(readProjectFiles: (projectId: string) => Promise<Tran
         projectFiles = await readProjectFiles(projectId);
       } catch {
         if (!isCurrentRun()) return null;
-        setStatus({ kind: "err", text: "读取预览文件失败" });
+        setStatus({ kind: "err", text: t("readFailed") });
         setPreviewActive(false);
         setPreviewRunPhase("idle");
-        return { status: "error", type: ToolResultType.CompileError, message: "读取预览文件失败" };
+        return { status: "error", type: ToolResultType.CompileError, message: t("readFailed") };
       }
 
       const contract = validateReactProjectContract(projectFiles);
       if (!contract.ok) {
         if (!isCurrentRun()) return null;
         const message = formatProjectContractErrors(contract.errors);
-        resetPreview("生成完整 React 项目后可预览");
+        resetPreview(t("completeProjectFirst"));
         return { status: "error", type: ToolResultType.CompileError, message };
       }
 
       if (!isCurrentRun()) return null;
       setPreviewActive(true);
       setPreviewRunPhase("compiling");
-      setStatus({ kind: "load", text: "编译项目中…（esbuild-wasm）" });
+      setStatus({ kind: "load", text: t("compilingStatus") });
       try {
         const compiled = await compileProject(projectFiles);
         if (!isCurrentRun()) return null;
         preloadImportMap(compiled.importMap);
         setPreviewRunPhase("running");
-        setStatus({ kind: "load", text: "执行中…" });
+        setStatus({ kind: "load", text: t("executing") });
         const sandbox = await waitForSandbox();
         if (!isCurrentRun()) return null;
         if (!sandbox) {
-          setStatus({ kind: "", text: `${compiled.entryPath} 已编译，等待预览挂载` });
+          setStatus({ kind: "", text: t("compiledWaiting", { entry: compiled.entryPath }) });
           setPreviewRunPhase("idle");
-          return interruptedPreviewResult("浏览器沙箱尚未挂载，无法运行预览。");
+          return interruptedPreviewResult(t("sandboxNotMounted"));
         }
 
         const t0 = performance.now();
@@ -125,7 +127,7 @@ export function usePreview(readProjectFiles: (projectId: string) => Promise<Tran
         const dur = Math.round(performance.now() - t0);
 
         if (result?.type === ToolResultType.RenderOk) {
-          setStatus({ kind: "ok", text: "渲染成功", meta: `· ${dur}ms` });
+          setStatus({ kind: "ok", text: t("renderOk"), meta: `· ${dur}ms` });
           setOverlay((o) => ({ ...o, show: false }));
           setHasResult(true);
           setPreviewRunPhase("idle");
@@ -133,7 +135,7 @@ export function usePreview(readProjectFiles: (projectId: string) => Promise<Tran
         }
 
         if (result) {
-          setStatus({ kind: "err", text: "运行报错" });
+          setStatus({ kind: "err", text: t("runtimeError") });
           setOverlay({ show: true, title: "Runtime Error", message: result.message, stack: result.stack, showStack: false });
           setPreviewRunPhase("idle");
           return {
@@ -144,21 +146,21 @@ export function usePreview(readProjectFiles: (projectId: string) => Promise<Tran
           };
         }
 
-        setStatus({ kind: "", text: `${compiled.entryPath} 已加载` });
+        setStatus({ kind: "", text: t("loaded", { entry: compiled.entryPath }) });
         setPreviewRunPhase("idle");
-        return interruptedPreviewResult("预览没有返回明确的运行结果。");
+        return interruptedPreviewResult(t("noResult"));
       } catch (error) {
         if (!isCurrentRun()) return null;
         const message = error instanceof TranspileError
           ? error.failures.map((failure) => failure.text).join("; ")
           : String(error instanceof Error ? error.message : error);
-        setStatus({ kind: "err", text: "编译报错" });
-        setOverlay({ show: true, title: "Compile Error", message: "编译错误：" + message, stack: "", showStack: false });
+        setStatus({ kind: "err", text: t("compileError") });
+        setOverlay({ show: true, title: "Compile Error", message: t("compileErrorMessage", { message }), stack: "", showStack: false });
         setPreviewRunPhase("idle");
         return { status: "error", type: ToolResultType.CompileError, message };
       }
     },
-    [readProjectFiles, resetPreview, waitForSandbox]
+    [readProjectFiles, resetPreview, t, waitForSandbox]
   );
 
   return {

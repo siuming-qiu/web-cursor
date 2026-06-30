@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
+import { Check, ChevronDown } from "lucide-react";
 import type { PreviewRunPhase } from "@/hooks/usePreview";
 import type { WorkbenchViewMode } from "@/lib/workbenchStore";
 
@@ -28,12 +31,29 @@ export default function TopBar({
   previewHasUpdate?: boolean;
   onViewModeChange?: (mode: WorkbenchViewMode) => void;
   onHome?: () => void;
-  onRerun: () => void;
-  onExport: () => void;
+  onRerun?: () => void;
+  onExport?: () => void;
 }) {
+  const t = useTranslations("TopBar");
+  const common = useTranslations("Common");
+  const locale = useLocale();
+  const [localeOpen, setLocaleOpen] = useState(false);
   const showModeSwitch = viewMode && onViewModeChange;
+  const showActions = onRerun || onExport;
   const previewRefreshing = previewRunPhase !== "idle";
   const previewNotified = !previewRefreshing && previewHasUpdate;
+  const currentLocaleLabel = locale === "en" ? "EN" : "中";
+  const languageOptions = [
+    { value: "en" as const, label: common("english"), shortLabel: "EN" },
+    { value: "zh" as const, label: common("chinese"), shortLabel: "中" },
+  ];
+
+  function switchLocale(nextLocale: "zh" | "en") {
+    setLocaleOpen(false);
+    if (nextLocale === locale) return;
+    document.cookie = `NEXT_LOCALE=${nextLocale}; path=/; max-age=31536000; SameSite=Lax`;
+    window.location.reload();
+  }
 
   return (
     <div className="h-12 flex-none flex items-center gap-3 px-4 bg-panel border-b border-border">
@@ -47,7 +67,7 @@ export default function TopBar({
             className="mr-2 px-2 py-1 rounded-md text-accent hover:bg-panel2"
             onClick={onHome}
           >
-            我的项目
+            {common("myProjects")}
           </button>
         )}
         · <b className="text-fg font-medium">{projName}</b>
@@ -81,7 +101,7 @@ export default function TopBar({
                 }
               />
             </span>
-            Preview
+            {t("preview")}
           </button>
           <button
             className={
@@ -92,17 +112,72 @@ export default function TopBar({
             type="button"
             onClick={() => onViewModeChange("code")}
           >
-            ⌘ Code
+            ⌘ {t("code")}
           </button>
         </div>
       )}
       <div className="flex-1" />
-      <button className={btnGhost} disabled={!canAct} onClick={onRerun}>
-        ↻ 重跑
-      </button>
-      <button className={btnPrimary} disabled={!canAct} onClick={onExport}>
-        ⬇ 导出 HTML
-      </button>
+      <div
+        className="relative"
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setLocaleOpen(false);
+          }
+        }}
+      >
+        <button
+          type="button"
+          className="inline-flex h-8 min-w-[74px] items-center justify-center gap-1.5 rounded-full border border-border bg-codebg px-3 text-[13px] font-semibold text-fg transition hover:border-accent focus:border-accent focus:outline-none"
+          aria-haspopup="menu"
+          aria-expanded={localeOpen}
+          title={common("language")}
+          onClick={() => setLocaleOpen((open) => !open)}
+        >
+          {currentLocaleLabel}
+          <ChevronDown
+            size={15}
+            strokeWidth={2}
+            className={"text-muted transition " + (localeOpen ? "rotate-180" : "")}
+          />
+        </button>
+
+        {localeOpen && (
+          <div
+            className="absolute right-0 top-[calc(100%+8px)] z-30 w-[156px] overflow-hidden rounded-xl border border-border bg-panel p-1.5 shadow-[0_16px_34px_rgba(0,0,0,0.42)]"
+            role="menu"
+          >
+            {languageOptions.map((option) => {
+              const active = option.value === locale;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={
+                    "flex h-10 w-full items-center justify-between rounded-lg px-3 text-left text-[13px] transition " +
+                    (active ? "bg-panel2 text-fg" : "text-muted hover:bg-panel2 hover:text-fg")
+                  }
+                  role="menuitemradio"
+                  aria-checked={active}
+                  onClick={() => switchLocale(option.value)}
+                >
+                  <span>{option.label}</span>
+                  {active && <Check size={16} strokeWidth={2} className="text-accent" />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      {showActions && onRerun && (
+        <button className={btnGhost} disabled={!canAct} onClick={onRerun}>
+          ↻ {t("rerun")}
+        </button>
+      )}
+      {showActions && onExport && (
+        <button className={btnPrimary} disabled={!canAct} onClick={onExport}>
+          ⬇ {t("exportHtml")}
+        </button>
+      )}
     </div>
   );
 }

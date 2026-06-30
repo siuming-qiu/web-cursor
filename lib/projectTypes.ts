@@ -40,11 +40,11 @@ export type StoredMessage = {
   meta?: unknown;
 };
 
-export function formatTime(value?: string) {
-  if (!value) return "未知时间";
+export function formatTime(value?: string, locale = "zh") {
+  if (!value) return locale === "en" ? "Unknown time" : "未知时间";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "未知时间";
-  return date.toLocaleString("zh-CN", {
+  if (Number.isNaN(date.getTime())) return locale === "en" ? "Unknown time" : "未知时间";
+  return date.toLocaleString(locale === "en" ? "en-US" : "zh-CN", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",

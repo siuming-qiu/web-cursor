@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 
 export default function ExportModal({
   onBuildHtml,
@@ -11,6 +12,8 @@ export default function ExportModal({
   onClose: () => void;
   onToast: (msg: string) => void;
 }) {
+  const t = useTranslations("Export");
+  const common = useTranslations("Common");
   const [fname, setFname] = useState("my-app.html");
 
   async function download() {
@@ -25,9 +28,9 @@ export default function ExportModal({
       a.remove();
       URL.revokeObjectURL(a.href);
       onClose();
-      onToast("✓ 已导出 " + a.download);
+      onToast("✓ " + t("exported", { file: a.download }));
     } catch (e: any) {
-      onToast("导出失败：" + (e?.message ?? e));
+      onToast(t("failed", { message: e?.message ?? e }));
     }
   }
 
@@ -38,17 +41,17 @@ export default function ExportModal({
     >
       <div className="w-[430px] bg-panel border border-border rounded-[14px] overflow-hidden">
         <div className="flex items-center justify-between px-[18px] py-[15px] border-b border-border font-semibold">
-          导出为静态 HTML
+          {t("title")}
             <button className="bg-none border-none text-muted text-lg hover:text-accent" onClick={onClose}>
             ✕
           </button>
         </div>
         <div className="p-[18px] leading-[1.7]">
           <div className="text-muted text-[13px] mb-4">
-            把当前结果导出成一个 .html 文件，在浏览器打开即可运行（依赖走 esm.sh CDN）。
+            {t("description")}
           </div>
           <div className="mb-4">
-            <label className="block text-[12px] text-muted mb-1.5">文件名</label>
+            <label className="block text-[12px] text-muted mb-1.5">{t("fileName")}</label>
             <input
               type="text"
               value={fname}
@@ -57,23 +60,23 @@ export default function ExportModal({
             />
           </div>
           <div className="mb-4">
-            <label className="block text-[12px] text-muted mb-1.5">依赖方式</label>
+            <label className="block text-[12px] text-muted mb-1.5">{t("dependencyMode")}</label>
             <label className="flex gap-[9px] items-start px-[11px] py-[9px] border border-accent rounded-[9px] mb-2 bg-accent/[0.07] cursor-pointer">
               <input type="radio" name="dep" defaultChecked className="mt-[3px]" />
               <div>
                 <div className="text-[13.5px]">
-                  联网运行 <span className="text-[10px] bg-panel2 border border-border rounded px-1.5 py-px text-muted ml-1.5">一期默认</span>
+                  {t("online")} <span className="text-[10px] bg-panel2 border border-border rounded px-1.5 py-px text-muted ml-1.5">{t("defaultBadge")}</span>
                 </div>
-                <div className="text-[11.5px] text-muted mt-0.5">体积小，依赖走 CDN，打开需联网</div>
+                <div className="text-[11.5px] text-muted mt-0.5">{t("onlineDescription")}</div>
               </div>
             </label>
             <label className="flex gap-[9px] items-start px-[11px] py-[9px] border border-border rounded-[9px] opacity-50 cursor-not-allowed">
               <input type="radio" name="dep" disabled className="mt-[3px]" />
               <div>
                 <div className="text-[13.5px]">
-                  完全离线 <span className="text-[10px] bg-panel2 border border-border rounded px-1.5 py-px text-muted ml-1.5">🔒 二期</span>
+                  {t("offline")} <span className="text-[10px] bg-panel2 border border-border rounded px-1.5 py-px text-muted ml-1.5">{t("futureBadge")}</span>
                 </div>
-                <div className="text-[11.5px] text-muted mt-0.5">依赖内联，断网也能 file:// 双击运行</div>
+                <div className="text-[11.5px] text-muted mt-0.5">{t("offlineDescription")}</div>
               </div>
             </label>
           </div>
@@ -83,13 +86,13 @@ export default function ExportModal({
             className="px-3 py-1.5 rounded-md text-[13px] bg-panel2 border border-border text-fg hover:border-accent"
             onClick={onClose}
           >
-            取消
+            {common("cancel")}
           </button>
           <button
             className="px-3.5 py-1.5 rounded-md text-[13px] bg-accent border border-accent text-white font-medium hover:bg-[#d04200]"
             onClick={download}
           >
-            ⬇ 下载 HTML
+            ⬇ {t("download")}
           </button>
         </div>
       </div>

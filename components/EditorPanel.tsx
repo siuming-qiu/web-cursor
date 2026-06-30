@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { FormEvent, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import { FileCode2, FilePlus2, Folder, PencilLine, Save, Trash2, X } from "lucide-react";
 import Spinner from "./Spinner";
 import type { ProjectFileSummary } from "@/lib/projectTypes";
@@ -50,18 +51,6 @@ function normalizeInputPath(path: string) {
   return path.trim();
 }
 
-function fileDialogTitle(dialog: Exclude<FileDialog, null>) {
-  if (dialog.kind === "new") return "新建文件";
-  if (dialog.kind === "rename") return "重命名或移动";
-  return "删除文件";
-}
-
-function fileDialogAction(dialog: Exclude<FileDialog, null>) {
-  if (dialog.kind === "new") return "创建";
-  if (dialog.kind === "rename") return "应用";
-  return "删除";
-}
-
 export default function EditorPanel({
   code,
   files,
@@ -89,6 +78,8 @@ export default function EditorPanel({
   onRenameFile: (newPath: string) => void | Promise<void>;
   onDeleteFile: () => void | Promise<void>;
 }) {
+  const t = useTranslations("Editor");
+  const common = useTranslations("Common");
   const groups = useMemo(() => groupFiles(files), [files]);
   const canEdit = !!activePath;
   const [dialog, setDialog] = useState<FileDialog>(null);
@@ -100,7 +91,7 @@ export default function EditorPanel({
 
     const path = normalizeInputPath(dialog.path);
     if (dialog.kind !== "delete" && !path) {
-      setDialog({ ...dialog, error: "请输入项目内文件路径" });
+      setDialog({ ...dialog, error: t("inputPathRequired") });
       return;
     }
 
@@ -120,16 +111,28 @@ export default function EditorPanel({
     }
   }
 
+  function fileDialogTitle(dialog: Exclude<FileDialog, null>) {
+    if (dialog.kind === "new") return t("newFile");
+    if (dialog.kind === "rename") return t("renameOrMove");
+    return t("deleteFile");
+  }
+
+  function fileDialogAction(dialog: Exclude<FileDialog, null>) {
+    if (dialog.kind === "new") return t("create");
+    if (dialog.kind === "rename") return t("apply");
+    return common("delete");
+  }
+
   return (
     <div className="flex h-full min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-codebg">
       <aside className="flex h-full w-[270px] flex-none flex-col border-r border-border bg-panel">
         <div className="h-11 flex-none flex items-center justify-between gap-2 border-b border-border bg-panel2 px-3.5 text-[12px] uppercase tracking-[0.08em] text-muted">
-          <span>Files</span>
+          <span>{t("files")}</span>
           <span className="ml-auto rounded bg-codebg px-2 py-0.5 text-[11px] tracking-normal text-muted">{files.length}</span>
           <button
             className={iconBtn}
             onClick={() => setDialog({ kind: "new", path: "src/components/NewFile.tsx", error: "" })}
-            title="新建文件"
+            title={t("newFile")}
           >
             <FilePlus2 size={14} strokeWidth={2} />
           </button>
@@ -138,7 +141,7 @@ export default function EditorPanel({
         <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-3">
           {groups.length === 0 ? (
             <div className="rounded-md border border-dashed border-border px-3 py-3 text-[12px] leading-5 text-muted">
-              还没有文件。AI 写入或手动新建后会显示在这里。
+              {t("emptyFiles")}
             </div>
           ) : (
             <div className="flex flex-col gap-3">
@@ -185,33 +188,33 @@ export default function EditorPanel({
               "flex h-full min-w-0 max-w-[520px] items-center gap-2 border-t-2 bg-panel2 px-3 " +
               (hasActiveFileDraft ? "border-yellow" : "border-accent")
             }
-            title={hasActiveFileDraft && activePath ? `${activePath} - 未保存草稿` : activePath ?? "未选择文件"}
+            title={hasActiveFileDraft && activePath ? `${activePath} - ${t("unsavedDraft")}` : activePath ?? t("noFile")}
           >
             <FileCode2 size={14} strokeWidth={1.8} className="text-accent" />
-            <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-fg">{activePath ?? "未选择文件"}</span>
+            <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-fg">{activePath ?? t("noFile")}</span>
             {hasActiveFileDraft && (
               <span
                 className="h-2 w-2 flex-none rounded-full bg-yellow shadow-[0_0_0_2px_rgba(210,153,34,0.12)]"
-                aria-label="未保存"
+                aria-label={t("unsaved")}
               />
             )}
           </div>
           <div className="flex-1" />
           {writing && (
             <span className="inline-flex items-center gap-1.5 rounded bg-codebg/80 px-2 py-[3px] text-[11px] text-accent">
-              <Spinner /> AI 写入
+              <Spinner /> {t("aiWriting")}
             </span>
           )}
           {activeFileSyncing && (
             <span className="inline-flex items-center gap-1.5 rounded bg-codebg/80 px-2 py-[3px] text-[11px] text-accent">
-              <Spinner /> 同步中
+              <Spinner /> {t("syncing")}
             </span>
           )}
           <button
             className={iconBtn}
             disabled={!canEdit || activeFileSyncing}
             onClick={() => activePath && setDialog({ kind: "rename", path: activePath, error: "" })}
-            title="重命名或移动"
+            title={t("renameOrMove")}
           >
             <PencilLine size={14} strokeWidth={2} />
           </button>
@@ -219,7 +222,7 @@ export default function EditorPanel({
             className={iconBtn}
             disabled={!canEdit || activeFileSyncing}
             onClick={() => activePath && setDialog({ kind: "delete", path: activePath, error: "" })}
-            title="删除文件"
+            title={t("deleteFile")}
           >
             <Trash2 size={14} strokeWidth={2} />
           </button>
@@ -229,14 +232,14 @@ export default function EditorPanel({
             onClick={onSave}
           >
             <Save size={13} strokeWidth={2.2} />
-            保存
+            {common("save")}
           </button>
         </div>
 
         <div className="relative min-h-0 flex-1 border-t border-border">
           {!activePath && (
             <div className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-2 px-6 text-center font-mono text-[13px] text-muted">
-              // 选择或新建一个文件
+              {t("chooseFile")}
             </div>
           )}
           {activePath && <CodeEditor path={activePath} value={code} onChange={onChange} onSave={onSave} />}
@@ -255,7 +258,7 @@ export default function EditorPanel({
                 type="button"
                 className={iconBtn}
                 onClick={() => setDialog(null)}
-                title="关闭"
+                title={common("close")}
               >
                 <X size={14} strokeWidth={2} />
               </button>
@@ -267,7 +270,7 @@ export default function EditorPanel({
                 </div>
               ) : (
                 <label className="block">
-                  <span className="mb-1.5 block text-[12px] text-muted">项目内路径</span>
+                  <span className="mb-1.5 block text-[12px] text-muted">{t("filePath")}</span>
                   <input
                     autoFocus
                     className="h-9 w-full rounded-md border border-border bg-codebg px-3 font-mono text-[13px] text-fg outline-none transition focus:border-accent"
@@ -288,7 +291,7 @@ export default function EditorPanel({
                 className="h-8 rounded-md border border-border px-3 text-[12px] text-muted transition hover:border-accent hover:text-accent"
                 onClick={() => setDialog(null)}
               >
-                取消
+                {common("cancel")}
               </button>
               <button
                 type="submit"

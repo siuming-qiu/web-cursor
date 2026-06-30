@@ -7,6 +7,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { Boxes, CheckCircle2, Link2, Loader2, RefreshCw, Wand2, XCircle } from "lucide-react";
 import { req } from "@/lib/api";
 import { getOwnerId } from "@/lib/owner";
@@ -32,36 +33,36 @@ const buttonBase =
 const primaryButton = `${buttonBase} border-[#f24e1e] bg-[#f24e1e] text-white hover:bg-[#d94419]`;
 const quietButton = `${buttonBase} border-[#34312b] bg-[#151412] text-[#f7f3ea] hover:border-[#5d554a]`;
 
-function statusCopy(status: FigmaConnectionStatus) {
+function statusCopy(status: FigmaConnectionStatus, t: ReturnType<typeof useTranslations<"Figma">>) {
   if (status.status === "loading") {
     return {
       icon: <Loader2 className="h-4 w-4 animate-spin" />,
-      label: "正在检查",
-      title: "正在检查 Figma 连接",
-      detail: "读取当前 owner 的 Figma 授权状态。",
+      label: t("checking"),
+      title: t("checkingTitle"),
+      detail: t("checkingDetail"),
     };
   }
   if (status.status === "connected") {
     return {
       icon: <CheckCircle2 className="h-4 w-4" />,
-      label: "已连接",
-      title: "Figma 已连接",
-      detail: "可以继续读取这个设计链接。",
+      label: t("connected"),
+      title: t("connectedTitle"),
+      detail: t("connectedDetail"),
     };
   }
   if (status.status === "error") {
     return {
       icon: <XCircle className="h-4 w-4" />,
-      label: "检查失败",
-      title: "检查 Figma 连接失败",
+      label: t("error"),
+      title: t("errorTitle"),
       detail: status.message,
     };
   }
   return {
     icon: <Link2 className="h-4 w-4" />,
-    label: "未连接",
-    title: "需要连接 Figma",
-    detail: "连接后 agent 才能读取你提供的 Figma frame 链接。",
+    label: t("disconnected"),
+    title: t("disconnectedTitle"),
+    detail: t("disconnectedDetail"),
   };
 }
 
@@ -79,9 +80,10 @@ export default function FigmaIntegrationCard({
   onResume,
   onLog,
 }: Props) {
+  const t = useTranslations("Figma");
   const [status, setStatus] = useState<FigmaConnectionStatus>({ status: "loading" });
   const [busy, setBusy] = useState(false);
-  const copy = statusCopy(status);
+  const copy = statusCopy(status, t);
   const connected = status.status === "connected";
   const [popupBusy, setPopupBusy] = useState(false);
   const [popupError, setPopupError] = useState("");
@@ -124,13 +126,13 @@ export default function FigmaIntegrationCard({
     popupRef.current = popup;
     if (!popup) {
       setPopupBusy(false);
-      setPopupError("浏览器拦截了 Figma 授权弹窗，请允许弹窗后重试。");
+      setPopupError(t("popupBlocked"));
       log("popup blocked");
       return;
     }
     setPopupBusy(true);
     popup.focus();
-  }, [connectUrl, log]);
+  }, [connectUrl, log, t]);
 
   useEffect(() => {
     if (!popupBusy) return;
@@ -179,21 +181,21 @@ export default function FigmaIntegrationCard({
         {(status.status === "disconnected" || popupError) && (
           <button className={primaryButton} type="button" disabled={effectiveBusy} onClick={openConnectPopup}>
             {effectiveBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
-            连接 Figma
+            {t("connect")}
           </button>
         )}
         {connected && (
           onResume && (
             <button className={primaryButton} type="button" disabled={effectiveBusy} onClick={onResume}>
               <Wand2 className="h-4 w-4" />
-              继续生成
+              {t("resume")}
             </button>
           )
         )}
         {status.status === "error" && (
           <button className={quietButton} type="button" disabled={effectiveBusy} onClick={refreshStatus}>
             <RefreshCw className="h-4 w-4" />
-            刷新状态
+            {t("refresh")}
           </button>
         )}
       </div>

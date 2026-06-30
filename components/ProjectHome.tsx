@@ -8,6 +8,7 @@
 
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import { req } from "@/lib/api";
 import type { Project } from "@/lib/projectTypes";
 import { formatTime, normalizeCreatedProject } from "@/lib/projectTypes";
@@ -16,6 +17,9 @@ import Toast from "@/components/Toast";
 
 export default function ProjectHome({ initialProjects }: { initialProjects: Project[] }) {
   const router = useRouter();
+  const t = useTranslations("ProjectHome");
+  const common = useTranslations("Common");
+  const locale = useLocale();
   const [projects, setProjects] = useState(initialProjects);
   const [toast, setToast] = useState("");
 
@@ -37,27 +41,25 @@ export default function ProjectHome({ initialProjects }: { initialProjects: Proj
   return (
     <div className="h-screen flex flex-col">
       <TopBar
-        projName="我的项目"
+        projName={common("myProjects")}
         canAct={false}
-        onRerun={() => {}}
-        onExport={() => {}}
       />
 
       <main className="flex-1 min-h-0 overflow-y-auto bg-bg px-8 py-8">
         <div className="mx-auto max-w-6xl">
           <div className="mb-7 flex items-end justify-between gap-4">
             <div>
-              <p className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">Workspace</p>
-              <h1 className="m-0 text-[32px] font-normal leading-tight text-fg">我的项目</h1>
+              <p className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">{t("workspace")}</p>
+              <h1 className="m-0 text-[32px] font-normal leading-tight text-fg">{t("title")}</h1>
               <p className="mt-2 text-[13px] text-muted">
-                项目保存一份代码库；项目下的多条会话线索共享当前代码。
+                {t("description")}
               </p>
             </div>
             <button
               className="rounded-lg border border-accent bg-accent px-4 py-2.5 text-[13px] font-medium text-white transition hover:bg-[#d04200]"
               onClick={createProject}
             >
-              ＋ 新建项目
+              ＋ {t("newProject")}
             </button>
           </div>
 
@@ -70,10 +72,10 @@ export default function ProjectHome({ initialProjects }: { initialProjects: Proj
               >
                 <div className="mb-4 flex items-center justify-between">
                   <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-codebg text-[18px] text-accent">⌘</span>
-                  <span className="text-[11px] text-muted">{formatTime(project.updatedAt ?? project.createdAt)}</span>
+                  <span className="text-[11px] text-muted">{formatTime(project.updatedAt ?? project.createdAt, locale)}</span>
                 </div>
                 <div className="truncate text-[15px] font-semibold text-fg">{project.title}</div>
-                <div className="mt-2 text-[12px] text-muted">打开项目查看历史会话和最后代码</div>
+                <div className="mt-2 text-[12px] text-muted">{t("openProject")}</div>
               </button>
             ))}
           </div>
