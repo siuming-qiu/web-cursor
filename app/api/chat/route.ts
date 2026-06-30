@@ -7,9 +7,10 @@
  */
 import { toLLMMessages } from "@/server/context";
 import type { ChatCompletionCreateParamsStreaming } from "openai/resources/chat/completions";
+import { defaultLocale, isAppLocale, localeHeaderName, type AppLocale } from "@/i18n/locales";
 import { db } from "@/server/db";
 import { conversations, projects } from "@/server/db/schema";
-import llmClient, { SYSTEM_PROMPT, tools } from "@/server/llm";
+import llmClient, { systemPromptForLocale, tools } from "@/server/llm";
 import { getOwnedConversationProjectId, ownsConversation, ownsProject } from "@/server/guard";
 import { appendMessage, listMessages } from "@/server/messages";
 import { attachToConversation, AttachmentError } from "@/server/attachments";
@@ -44,13 +45,20 @@ function sseResponse(stream: ReadableStream<Uint8Array>) {
   });
 }
 
-function assistantMessages(rows: DbMessage[]) {
-  return [{ role: "system" as const, content: SYSTEM_PROMPT }, ...toLLMMessages(rows)];
+function requestLocale(req: Request): AppLocale | Response {
+  const locale = req.headers.get(localeHeaderName);
+  if (locale === null) return defaultLocale;
+  if (isAppLocale(locale)) return locale;
+  return Response.json({ error: "bad request", detail: `Invalid ${localeHeaderName}` }, { status: 400 });
 }
 
-async function requestAssistant(rows: DbMessage[]) {
+function assistantMessages(rows: DbMessage[], locale: AppLocale) {
+  return [{ role: "system" as const, content: systemPromptForLocale(locale) }, ...toLLMMessages(rows)];
+}
+
+async function requestAssistant(rows: DbMessage[], locale: AppLocale) {
   const params: DeepSeekStreamingParams = {
-    messages: assistantMessages(rows),
+    messages: assistantMessages(rows, locale),
     model: AGENT_MODEL,
     tools,
     tool_choice: "required",
@@ -62,9 +70,10 @@ async function requestAssistant(rows: DbMessage[]) {
 
 async function collectAssistantTurn(
   rows: DbMessage[],
+  locale: AppLocale,
   send: (event: ChatEvent) => void,
 ): Promise<{ text: string; toolCalls: ToolCallMeta[] }> {
-  const stream = await requestAssistant(rows);
+  const stream = await requestAssistant(rows, locale);
   const toolCalls = new Map<number, ToolCallMeta>();
   let text = "";
 
@@ -149,6 +158,7 @@ async function runAgentLoop({
   projectId,
   created,
   userMessage,
+  locale,
   send,
 }: {
   ownerId: string;
@@ -156,6 +166,7 @@ async function runAgentLoop({
   projectId: string;
   created: boolean;
   userMessage?: string;
+  locale: AppLocale;
   send: (event: ChatEvent) => void;
 }) {
   if (created) send({ type: ChatEventType.Init, conversationId, projectId });
@@ -174,7 +185,7 @@ async function runAgentLoop({
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const rows = await listMessages(conversationId);
-    const assistant = await collectAssistantTurn(rows, send);
+    const assistant = await collectAssistantTurn(rows, locale, send);
 
     if (assistant.toolCalls.length === 0) {
       if (assistant.text) {
@@ -254,6 +265,7 @@ function streamAgent(args: {
   ownerId: string;
   created: boolean;
   userMessage?: string;
+  locale: AppLocale;
 }) {
   const encoder = new TextEncoder();
 
@@ -300,7 +312,20 @@ function streamStaticAssistant(args: {
   }));
 }
 
-function previewFeedbackMessage(result: Extract<ChatTurn, { kind: "preview_feedback" }>["result"]) {
+function previewFeedbackMessage(result: Extract<ChatTurn, { kind: "preview_feedback" }>["result"], locale: AppLocale) {
+  if (locale === "en") {
+    if (result.status === "ok") {
+      return `Browser preview result: ${result.type}${result.durationMs ? `, ${result.durationMs}ms` : ""}.`;
+    }
+
+    return [
+      `Browser preview failed: ${result.type}`,
+      `Error message: ${result.message}`,
+      result.type === "RUNTIME_ERROR" && result.stack ? `Stack trace: ${result.stack}` : "",
+      "Continue fixing the project files based on this real preview result; do not assume the project is already running.",
+    ].filter(Boolean).join("\n");
+  }
+
   if (result.status === "ok") {
     return `浏览器预览结果：${result.type}${result.durationMs ? `，耗时 ${result.durationMs}ms` : ""}。`;
   }
@@ -317,6 +342,9 @@ export async function POST(req: Request) {
   const ownerId = req.headers.get("x-owner-id");
   if (!ownerId) return new Response("Unauthorized", { status: 401 });
 
+  const locale = requestLocale(req);
+  if (locale instanceof Response) return locale;
+
   let body: ChatTurn;
   try {
     body = ChatTurnSchema.parse(await req.json());
@@ -328,7 +356,7 @@ export async function POST(req: Request) {
     const projectId = await getOwnedConversationProjectId(body.conversationId, ownerId);
     if (!projectId) return new Response("Not Found", { status: 404 });
     await closeTailToolCallBeforeModelInput(body.conversationId);
-    return streamAgent({ conversationId: body.conversationId, projectId, ownerId, created: false });
+    return streamAgent({ conversationId: body.conversationId, projectId, ownerId, created: false, locale });
   }
 
   if (body.kind === "preview_feedback") {
@@ -338,11 +366,11 @@ export async function POST(req: Request) {
     await closeTailToolCallBeforeModelInput(body.conversationId);
     await appendMessage(body.conversationId, {
       role: "user",
-      content: previewFeedbackMessage(body.result),
+      content: previewFeedbackMessage(body.result, locale),
       meta: { previewResult: body.result },
     });
 
-    return streamAgent({ conversationId: body.conversationId, projectId, ownerId, created: false });
+    return streamAgent({ conversationId: body.conversationId, projectId, ownerId, created: false, locale });
   }
 
   let { conversationId, projectId } = body;
@@ -394,6 +422,7 @@ export async function POST(req: Request) {
     ownerId,
     conversationId,
     message: body.message,
+    locale,
   });
   if (figmaGate) {
     return streamStaticAssistant({
@@ -405,5 +434,5 @@ export async function POST(req: Request) {
     });
   }
 
-  return streamAgent({ conversationId, projectId, ownerId, created, userMessage: body.message });
+  return streamAgent({ conversationId, projectId, ownerId, created, userMessage: body.message, locale });
 }

@@ -1,4 +1,5 @@
 export const locales = ["zh", "en"] as const;
+export const localeHeaderName = "x-locale";
 
 export type AppLocale = typeof locales[number];
 

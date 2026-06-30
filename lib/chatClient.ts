@@ -7,14 +7,15 @@
 "use client";
 
 import { getOwnerId } from "./owner";
+import { localeHeaderName } from "@/i18n/locales";
 import type { ChatEvent, ChatTurn } from "@/types/chat";
 import type { ToolResult } from "@/types/tool";
 
 /** 调后端 /api/chat，逐条 yield SSE 事件。自带 x-owner-id；流关闭即结束。 */
-export async function* streamChat(turn: ChatTurn): AsyncIterable<ChatEvent> {
+export async function* streamChat(turn: ChatTurn, locale: string): AsyncIterable<ChatEvent> {
   const res = await fetch("/api/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-owner-id": getOwnerId() },
+    headers: { "Content-Type": "application/json", "x-owner-id": getOwnerId(), [localeHeaderName]: locale },
     body: JSON.stringify(turn),
   });
 

@@ -5,6 +5,7 @@
  * [PROTOCOL]: 这里只检测明确 Figma design/file URL，不解析 node，不读取 Figma，不猜设计内容
  */
 import "server-only";
+import type { AppLocale } from "@/i18n/locales";
 import { appendMessage } from "@/server/messages";
 import { getFigmaConnectionStatus } from "@/server/figma/oauth";
 import { AGENT_MODEL } from "@/server/models";
@@ -27,17 +28,21 @@ export async function maybeAppendFigmaConnectionGate({
   ownerId,
   conversationId,
   message,
+  locale,
 }: {
   ownerId: string;
   conversationId: string;
   message: string;
+  locale: AppLocale;
 }): Promise<{ content: string; meta: IntegrationCardMeta } | null> {
   if (!containsFigmaDesignUrl(message)) return null;
 
   const status = await getFigmaConnectionStatus(ownerId);
   if (status.status === "connected") return null;
 
-  const content = "需要连接 Figma 才能读取这个设计链接。";
+  const content = locale === "en"
+    ? "Connect Figma before I can read this design link."
+    : "需要连接 Figma 才能读取这个设计链接。";
   const meta: IntegrationCardMeta = {
     kind: IntegrationCardKind.IntegrationCard,
     provider: IntegrationProvider.Figma,

@@ -7,7 +7,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { postToolResult, streamChat } from "@/lib/chatClient";
 import { useConversationStore } from "@/lib/conversationStore";
 import type { AgentFileChange, Message, SendAttachment, Status } from "@/lib/types";
@@ -79,6 +79,7 @@ function finishAgentTurn() {
 
 export function useChat(deps: UseChatDeps) {
   const t = useTranslations("Agent");
+  const locale = useLocale();
   const abortRef = useRef({ aborted: false });
   const curAiIdRef = useRef<string>("");
   const lastPromptRef = useRef<string>("");
@@ -174,7 +175,7 @@ export function useChat(deps: UseChatDeps) {
         let filesChangedProjectId: string | null = null;
         let previewToolCallId: string | null = null;
 
-        for await (const ev of streamChat(currentTurn)) {
+        for await (const ev of streamChat(currentTurn, locale)) {
           if (abortRef.current.aborted) return { filesChanged, previewToolCallId, aborted: true };
 
           if (ev.type === ChatEventType.Init) {
@@ -307,7 +308,7 @@ export function useChat(deps: UseChatDeps) {
         return;
       }
     },
-    [appendFileChange, deps, t, updateAi]
+    [appendFileChange, deps, locale, t, updateAi]
   );
 
   const send = useCallback(

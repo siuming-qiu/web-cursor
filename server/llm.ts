@@ -1,8 +1,9 @@
 import "server-only"; // A 域守卫：持 key，误 import 进客户端组件会在编译期报错
 import OpenAI from "openai";
+import type { AppLocale } from "@/i18n/locales";
 export { tools } from "@/server/tools/definitions";
 
-export const SYSTEM_PROMPT = `
+const BASE_SYSTEM_PROMPT = `
 你是 Web Cursor 的 React 项目编辑 Agent。
 
 当前项目是一个虚拟文件系统。
@@ -83,6 +84,15 @@ export const SYSTEM_PROMPT = `
 - 如果删除或重命名文件，必须同步修改所有引用它的 import。
 - 修改完成后必须 list_files 自检项目结构，确认项目处于自洽状态后，再调用 run_preview 验收真实运行结果。
 `
+
+const LOCALE_SYSTEM_INSTRUCTIONS: Record<AppLocale, string> = {
+  zh: "语言规则：始终使用中文回复用户。代码、文件名、工具名、错误码和协议字段不要翻译。",
+  en: "Language rule: Always respond to the user in English. Do not translate code, filenames, tool names, error codes, or protocol fields.",
+};
+
+export function systemPromptForLocale(locale: AppLocale): string {
+  return `${BASE_SYSTEM_PROMPT}\n${LOCALE_SYSTEM_INSTRUCTIONS[locale]}`;
+}
 
 const llmClient = new OpenAI({
   baseURL: "https://api.deepseek.com",
