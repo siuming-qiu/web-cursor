@@ -57,6 +57,42 @@ export type ImageRunView = {
   resumeOnTerminal?: boolean;
 };
 
+export const AiTimelineItemKind = {
+  Chat: "chat",
+  FileWriteStream: "file_write_stream",
+  FileChange: "file_change",
+  ImageRun: "image_run",
+} as const;
+
+export type AiTimelineItem =
+  | {
+      id: string;
+      kind: typeof AiTimelineItemKind.Chat;
+      receivedAt: number;
+      order: number;
+    }
+  | {
+      id: string;
+      kind: typeof AiTimelineItemKind.FileWriteStream;
+      toolCallId: string;
+      receivedAt: number;
+      order: number;
+    }
+  | {
+      id: string;
+      kind: typeof AiTimelineItemKind.FileChange;
+      changeId: string;
+      receivedAt: number;
+      order: number;
+    }
+  | {
+      id: string;
+      kind: typeof AiTimelineItemKind.ImageRun;
+      runId: string;
+      receivedAt: number;
+      order: number;
+    };
+
 export type UserMessageAttachment = AttachmentSummary & {
   name?: string;
   previewUrl?: string;
@@ -85,6 +121,7 @@ export type Message =
       fileWriteStreams?: FileWriteStreamView[];
       imageRuns?: ImageRunView[];
       integrationCard?: IntegrationCardMeta;
+      timeline?: AiTimelineItem[];
     };
 
 export interface Status {

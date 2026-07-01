@@ -10,7 +10,8 @@ import { useCallback, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { postToolResult, streamChat } from "@/lib/chatClient";
 import { useConversationStore } from "@/lib/conversationStore";
-import type { AgentFileChange, ImageRunView, Message, SendAttachment, Status } from "@/lib/types";
+import { AiTimelineItemKind } from "@/lib/types";
+import type { AgentFileChange, AiTimelineItem, ImageRunView, Message, SendAttachment, Status } from "@/lib/types";
 import type { ProjectFileSummary } from "@/lib/projectTypes";
 import type { ChatEvent, ChatTurn } from "@/types/chat";
 import { ChatEventType } from "@/types/chat";
@@ -33,6 +34,8 @@ type ProjectRef = {
   id: string;
   title: string;
 };
+
+type TimelineStamp = Pick<AiTimelineItem, "receivedAt" | "order">;
 
 type UseChatDeps = {
   loadFiles: (projectId: string, preferredPath?: string) => Promise<ProjectFileSummary[]>;
@@ -79,6 +82,10 @@ function finishAgentTurn() {
   useConversationStore.getState().finishTurn();
 }
 
+function appendTimelineItem<T extends AiTimelineItem>(timeline: AiTimelineItem[] | undefined, item: T) {
+  return [...(timeline ?? []), item];
+}
+
 export function useChat(deps: UseChatDeps) {
   const t = useTranslations("Agent");
   const locale = useLocale();
@@ -88,6 +95,7 @@ export function useChat(deps: UseChatDeps) {
   const lastAttachmentsRef = useRef<SendAttachment[]>([]);
   const projectIdRef = useRef<string | undefined>(undefined);
   const convIdRef = useRef<string | undefined>(undefined);
+  const timelineOrderRef = useRef(0);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [writing, setWriting] = useState(false);
@@ -107,6 +115,11 @@ export function useChat(deps: UseChatDeps) {
     setCurrentConversationId(conversationId);
   }, []);
 
+  const markTimeline = useCallback((): TimelineStamp => ({
+    receivedAt: Date.now(),
+    order: timelineOrderRef.current++,
+  }), []);
+
   const updateAi = useCallback(
     (fn: (m: Extract<Message, { role: "ai" }>) => Extract<Message, { role: "ai" }>) => {
       setMessages((prev) =>
@@ -116,14 +129,23 @@ export function useChat(deps: UseChatDeps) {
     []
   );
 
-  const appendFileChange = useCallback((change: Omit<AgentFileChange, "id">) => {
+  const appendFileChange = useCallback((change: Omit<AgentFileChange, "id">, stamp?: TimelineStamp) => {
+    const changeId = crypto.randomUUID();
     updateAi((m) => ({
       ...m,
-      fileChanges: [...(m.fileChanges ?? []), { ...change, id: crypto.randomUUID() }],
+      fileChanges: [...(m.fileChanges ?? []), { ...change, id: changeId }],
+      timeline: stamp
+        ? appendTimelineItem(m.timeline, {
+            id: `file-change-${changeId}`,
+            kind: AiTimelineItemKind.FileChange,
+            changeId,
+            ...stamp,
+          })
+        : m.timeline,
     }));
   }, [updateAi]);
 
-  const appendFileWriteStream = useCallback((ev: Extract<ChatEvent, { type: typeof ChatEventType.FileWriteStream }>) => {
+  const appendFileWriteStream = useCallback((ev: Extract<ChatEvent, { type: typeof ChatEventType.FileWriteStream }>, stamp: TimelineStamp) => {
     updateAi((m) => {
       const streams = m.fileWriteStreams ?? [];
       const existing = streams.find((stream) => stream.toolCallId === ev.toolCallId);
@@ -139,6 +161,12 @@ export function useChat(deps: UseChatDeps) {
               collapsed: false,
             },
           ],
+          timeline: appendTimelineItem(m.timeline, {
+            id: `file-write-stream-${ev.toolCallId}`,
+            kind: AiTimelineItemKind.FileWriteStream,
+            toolCallId: ev.toolCallId,
+            ...stamp,
+          }),
         };
       }
 
@@ -169,6 +197,7 @@ export function useChat(deps: UseChatDeps) {
   }, [updateAi]);
 
   const openProjectChat = useCallback((project: ProjectRef) => {
+    timelineOrderRef.current = 0;
     setProjectContext(project.id, undefined);
     setMessages([]);
     setWriting(false);
@@ -178,6 +207,7 @@ export function useChat(deps: UseChatDeps) {
 
   const openConversation = useCallback(
     async (project: ProjectRef, conversationId: string, rows: StoredMessage[]) => {
+      timelineOrderRef.current = 0;
       setProjectContext(project.id, conversationId);
       setWriting(false);
       setBusy(false);
@@ -260,6 +290,7 @@ export function useChat(deps: UseChatDeps) {
               setAgentActivity(t("toolFailedHandling", { name: ev.name }));
             }
           } else if (ev.type === ChatEventType.ToolPending) {
+            const stamp = markTimeline();
             updateAi((m) => ({
               ...m,
               imageRuns: [
@@ -281,17 +312,23 @@ export function useChat(deps: UseChatDeps) {
                   })),
                 },
               ],
+              timeline: appendTimelineItem(m.timeline, {
+                id: `image-run-${ev.runId}`,
+                kind: AiTimelineItemKind.ImageRun,
+                runId: ev.runId,
+                ...stamp,
+              }),
             }));
             deps.setPreviewStatus({ kind: "load", text: t("generatingImages") });
             setAgentActivity(t("generatingImages"));
           } else if (ev.type === ChatEventType.FileWriteStream) {
-            appendFileWriteStream(ev);
+            appendFileWriteStream(ev, markTimeline());
             deps.setPreviewStatus({ kind: "load", text: t("writingFiles") });
             setAgentActivity(t("writingFiles"));
           } else if (ev.type === ChatEventType.FilesChanged) {
             filesChanged = true;
             if (ev.path && ev.operation) {
-              appendFileChange({ operation: ev.operation, path: ev.path, oldPath: ev.oldPath });
+              appendFileChange({ operation: ev.operation, path: ev.path, oldPath: ev.oldPath }, markTimeline());
               deps.setPreviewStatus({ kind: "load", text: t("fileUpdated", { path: ev.path }) });
               setAgentActivity(t("fileUpdatedHandling", { path: ev.path }));
               const handled = await deps.handlePersistedFileChange(ev);
@@ -310,7 +347,21 @@ export function useChat(deps: UseChatDeps) {
               }
             }
           } else if (ev.type === ChatEventType.Chat) {
-            updateAi((m) => ({ ...m, chatText: (m.chatText ?? "") + ev.delta }));
+            const stamp = markTimeline();
+            updateAi((m) => {
+              const hasChatTimelineItem = m.timeline?.some((item) => item.kind === AiTimelineItemKind.Chat);
+              return {
+                ...m,
+                chatText: (m.chatText ?? "") + ev.delta,
+                timeline: hasChatTimelineItem
+                  ? m.timeline
+                  : appendTimelineItem(m.timeline, {
+                      id: `chat-${m.id}`,
+                      kind: AiTimelineItemKind.Chat,
+                      ...stamp,
+                    }),
+              };
+            });
             setAgentActivity(t("replying"));
           } else if (ev.type === ChatEventType.IntegrationCard) {
             updateAi((m) => ({ ...m, integrationCard: ev.meta }));
@@ -396,7 +447,7 @@ export function useChat(deps: UseChatDeps) {
         return;
       }
     },
-    [appendFileChange, appendFileWriteStream, collapseFileWriteStreams, deps, locale, t, updateAi]
+    [appendFileChange, appendFileWriteStream, collapseFileWriteStreams, deps, locale, markTimeline, t, updateAi]
   );
 
   const send = useCallback(
@@ -406,6 +457,7 @@ export function useChat(deps: UseChatDeps) {
       const messageText = p || t("attachmentOnly");
       lastPromptRef.current = messageText;
       lastAttachmentsRef.current = attachments;
+      timelineOrderRef.current = 0;
 
       const userId = crypto.randomUUID();
       const aiId = crypto.randomUUID();
@@ -425,7 +477,7 @@ export function useChat(deps: UseChatDeps) {
             previewUrl: attachment.previewUrl,
           })),
         },
-        { id: aiId, role: "ai", attempts: [], fileChanges: [] },
+        { id: aiId, role: "ai", attempts: [], fileChanges: [], timeline: [] },
       ]);
       setBusy(true);
       useConversationStore.getState().startTurn(aiId);
@@ -449,7 +501,8 @@ export function useChat(deps: UseChatDeps) {
 
     const aiId = crypto.randomUUID();
     curAiIdRef.current = aiId;
-    setMessages((prev) => [...prev, { id: aiId, role: "ai", attempts: [], fileChanges: [] }]);
+    timelineOrderRef.current = 0;
+    setMessages((prev) => [...prev, { id: aiId, role: "ai", attempts: [], fileChanges: [], timeline: [] }]);
     setBusy(true);
     setWriting(true);
     useConversationStore.getState().startTurn(aiId);

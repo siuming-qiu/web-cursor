@@ -6,12 +6,14 @@ import Spinner from "@/components/common/Spinner";
 import MarkdownMessage from "./MarkdownMessage";
 import FigmaIntegrationCard from "@/components/integrations/figma/FigmaIntegrationCard";
 import ImageRunCard from "./ImageRunCard";
+import { AiTimelineItemKind } from "@/lib/types";
 import type { AgentFileChange } from "@/lib/types";
 import type { Message, Phase } from "@/lib/types";
 import { useConversationStore } from "@/lib/conversationStore";
 
 type AiMsg = Extract<Message, { role: "ai" }>;
 type FileWriteStream = NonNullable<AiMsg["fileWriteStreams"]>[number];
+type ChangeLabel = (change: AgentFileChange) => string;
 
 function numClass(ok: boolean, failed: boolean, active: boolean) {
   const base = "w-[18px] h-[18px] rounded-full flex items-center justify-center text-[11px] flex-none ";
@@ -117,6 +119,31 @@ function FileWriteStreamBlock({ stream }: { stream: FileWriteStream }) {
   );
 }
 
+function FileChangesBlock({ changes, changeLabel }: { changes: AgentFileChange[]; changeLabel: ChangeLabel }) {
+  if (changes.length === 0) return null;
+
+  return (
+    <div className="mt-[9px] overflow-hidden rounded-[10px] border border-border bg-codebg">
+      {changes.map((change) => (
+        <div
+          key={change.id}
+          className="flex min-w-0 items-center gap-2 border-t border-border px-[11px] py-2 text-[12.5px] first:border-t-0"
+        >
+          <span className="h-1.5 w-1.5 flex-none rounded-full bg-accent" />
+          <span className="flex-none text-muted">{changeLabel(change)}</span>
+          {change.operation === "rename" && change.oldPath ? (
+            <span className="min-w-0 truncate font-mono text-[12px] text-fg">
+              {change.oldPath} → {change.path}
+            </span>
+          ) : (
+            <span className="min-w-0 truncate font-mono text-[12px] text-fg">{change.path}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => void }) {
   const t = useTranslations("Chat");
   const busy = useConversationStore((state) => state.busy && state.activeAiId === m.id);
@@ -140,6 +167,41 @@ export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => vo
     return t("changeWrite");
   }
 
+  const timeline = m.timeline
+    ? [...m.timeline].sort((a, b) => a.receivedAt - b.receivedAt || a.order - b.order)
+    : null;
+
+  function renderChatText(key?: string) {
+    if (!m.chatText || m.integrationCard) return null;
+
+    return (
+      <div key={key} className="markdown-message mt-3">
+        <MarkdownMessage content={m.chatText} />
+      </div>
+    );
+  }
+
+  function renderTimelineItem(item: NonNullable<typeof timeline>[number]) {
+    if (item.kind === AiTimelineItemKind.Chat) return renderChatText(item.id);
+
+    if (item.kind === AiTimelineItemKind.FileWriteStream) {
+      const stream = m.fileWriteStreams?.find((candidate) => candidate.toolCallId === item.toolCallId);
+      return stream ? <FileWriteStreamBlock key={item.id} stream={stream} /> : null;
+    }
+
+    if (item.kind === AiTimelineItemKind.FileChange) {
+      const change = m.fileChanges?.find((candidate) => candidate.id === item.changeId);
+      return change ? <FileChangesBlock key={item.id} changes={[change]} changeLabel={changeLabel} /> : null;
+    }
+
+    if (item.kind === AiTimelineItemKind.ImageRun) {
+      const run = m.imageRuns?.find((candidate) => candidate.runId === item.runId);
+      return run ? <ImageRunCard key={item.id} run={run} onResume={onResume} /> : null;
+    }
+
+    return null;
+  }
+
   return (
     <>
       {m.integrationCard && (
@@ -154,34 +216,21 @@ export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => vo
         </span>
       )}
 
-      {m.fileWriteStreams?.map((stream) => (
-        <FileWriteStreamBlock key={stream.toolCallId} stream={stream} />
-      ))}
-
-      {m.fileChanges?.length ? (
-        <div className="mt-[9px] overflow-hidden rounded-[10px] border border-border bg-codebg">
-          {m.fileChanges.map((change) => (
-            <div
-              key={change.id}
-              className="flex min-w-0 items-center gap-2 border-t border-border px-[11px] py-2 text-[12.5px] first:border-t-0"
-            >
-              <span className="h-1.5 w-1.5 flex-none rounded-full bg-accent" />
-              <span className="flex-none text-muted">{changeLabel(change)}</span>
-              {change.operation === "rename" && change.oldPath ? (
-                <span className="min-w-0 truncate font-mono text-[12px] text-fg">
-                  {change.oldPath} → {change.path}
-                </span>
-              ) : (
-                <span className="min-w-0 truncate font-mono text-[12px] text-fg">{change.path}</span>
-              )}
-            </div>
+      {timeline ? (
+        timeline.map(renderTimelineItem)
+      ) : (
+        <>
+          {m.fileWriteStreams?.map((stream) => (
+            <FileWriteStreamBlock key={stream.toolCallId} stream={stream} />
           ))}
-        </div>
-      ) : null}
 
-      {m.imageRuns?.map((run) => (
-        <ImageRunCard key={run.runId} run={run} onResume={onResume} />
-      ))}
+          <FileChangesBlock changes={m.fileChanges ?? []} changeLabel={changeLabel} />
+
+          {m.imageRuns?.map((run) => (
+            <ImageRunCard key={run.runId} run={run} onResume={onResume} />
+          ))}
+        </>
+      )}
 
       {busy && (m.fileChanges?.length || m.fileWriteStreams?.length || m.chatText) && !m.summary && (
         <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-border bg-codebg px-2.5 py-1.5 text-[12.5px] text-muted">
@@ -190,12 +239,7 @@ export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => vo
         </div>
       )}
 
-      {/* AI 直接回话/提问（reply 分支） */}
-      {m.chatText && !m.integrationCard && (
-        <div className="markdown-message mt-3">
-          <MarkdownMessage content={m.chatText} />
-        </div>
-      )}
+      {!timeline && renderChatText()}
 
       {hasHeal && (
         <div className="mt-[9px] rounded-[10px] border border-border overflow-hidden bg-codebg">
