@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import Spinner from "./Spinner";
 import MarkdownMessage from "./MarkdownMessage";
@@ -10,6 +11,7 @@ import type { Message, Phase } from "@/lib/types";
 import { useConversationStore } from "@/lib/conversationStore";
 
 type AiMsg = Extract<Message, { role: "ai" }>;
+type FileWriteStream = NonNullable<AiMsg["fileWriteStreams"]>[number];
 
 function numClass(ok: boolean, failed: boolean, active: boolean) {
   const base = "w-[18px] h-[18px] rounded-full flex items-center justify-center text-[11px] flex-none ";
@@ -17,6 +19,102 @@ function numClass(ok: boolean, failed: boolean, active: boolean) {
   if (failed) return base + "bg-red text-white";
   if (active) return base + "bg-yellow text-white";
   return base + "bg-[#2b2a26] text-fg";
+}
+
+function lineCount(value: string) {
+  if (!value) return 0;
+  return value.split("\n").length;
+}
+
+function FileWriteStreamBlock({ stream }: { stream: FileWriteStream }) {
+  const t = useTranslations("Chat");
+  const scrollRef = useRef<HTMLPreElement>(null);
+  const stickToBottomRef = useRef(true);
+  const [expanded, setExpanded] = useState(!stream.collapsed);
+  const [canScrollUp, setCanScrollUp] = useState(false);
+  const [canScrollDown, setCanScrollDown] = useState(false);
+
+  const updateScrollState = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const bottomDistance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setCanScrollUp(el.scrollTop > 2);
+    setCanScrollDown(bottomDistance > 2);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+    updateScrollState();
+  }, [stream.content, updateScrollState]);
+
+  useEffect(() => {
+    if (stream.collapsed) setExpanded(false);
+  }, [stream.collapsed]);
+
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        className="mt-2 flex w-full min-w-0 items-center gap-2 rounded-[10px] border border-border bg-codebg px-3 py-2 text-left transition hover:border-accent"
+        onClick={() => setExpanded(true)}
+      >
+        <span className="text-muted">▸</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg">
+          {stream.path ?? t("writingFile")}
+        </span>
+        <span className="flex-none tabular-nums text-[11px] text-muted">
+          {lineCount(stream.content)} {t("lines")}
+        </span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-[10px] border border-border bg-codebg shadow-[0_12px_34px_rgba(0,0,0,0.22)]">
+      <div className="flex min-w-0 items-center gap-2 border-b border-border bg-[#10100e] px-3 py-2">
+        <span className="h-1.5 w-1.5 flex-none rounded-full bg-accent" />
+        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg">
+          {stream.path ?? t("writingFile")}
+        </span>
+        <span className="flex-none tabular-nums text-[11px] text-muted">
+          {lineCount(stream.content)} {t("lines")}
+        </span>
+        <button
+          type="button"
+          className="ml-1 flex-none rounded-md border border-border px-2 py-0.5 text-[11px] text-muted transition hover:border-accent hover:text-accent"
+          onClick={() => setExpanded(false)}
+        >
+          {t("collapse")}
+        </button>
+      </div>
+
+      <div className="relative">
+        {canScrollUp ? (
+          <div className="pointer-events-none absolute left-0 right-0 top-0 z-10 h-8 bg-gradient-to-b from-codebg to-transparent" />
+        ) : null}
+        <pre
+          ref={scrollRef}
+          onScroll={(event) => {
+            const el = event.currentTarget;
+            const bottomDistance = el.scrollHeight - el.scrollTop - el.clientHeight;
+            stickToBottomRef.current = bottomDistance < 24;
+            setCanScrollUp(el.scrollTop > 2);
+            setCanScrollDown(bottomDistance > 2);
+          }}
+          className="max-h-[320px] min-h-[96px] overflow-auto p-3 text-[12px] leading-5 text-fg"
+        >
+          <code>{stream.content}</code>
+        </pre>
+        {canScrollDown ? (
+          <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-10 h-9 bg-gradient-to-t from-codebg to-transparent" />
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => void }) {
@@ -50,18 +148,15 @@ export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => vo
         </div>
       )}
 
-      {/* AI 直接回话/提问（reply 分支） */}
-      {m.chatText && !m.integrationCard && (
-        <div className="markdown-message">
-          <MarkdownMessage content={m.chatText} />
-        </div>
-      )}
-
-      {m.attempts.length === 0 && busy && !m.chatText && !m.fileChanges?.length && !m.imageRuns?.length && (
+      {m.attempts.length === 0 && busy && !m.chatText && !m.fileChanges?.length && !m.fileWriteStreams?.length && !m.imageRuns?.length && (
         <span>
           <Spinner /> {t("generating")}
         </span>
       )}
+
+      {m.fileWriteStreams?.map((stream) => (
+        <FileWriteStreamBlock key={stream.toolCallId} stream={stream} />
+      ))}
 
       {m.fileChanges?.length ? (
         <div className="mt-[9px] overflow-hidden rounded-[10px] border border-border bg-codebg">
@@ -88,10 +183,17 @@ export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => vo
         <ImageRunCard key={run.runId} run={run} onResume={onResume} />
       ))}
 
-      {busy && (m.fileChanges?.length || m.chatText) && !m.summary && (
+      {busy && (m.fileChanges?.length || m.fileWriteStreams?.length || m.chatText) && !m.summary && (
         <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-border bg-codebg px-2.5 py-1.5 text-[12.5px] text-muted">
           <Spinner />
           <span>{activityText || t("stillWorking")}</span>
+        </div>
+      )}
+
+      {/* AI 直接回话/提问（reply 分支） */}
+      {m.chatText && !m.integrationCard && (
+        <div className="markdown-message mt-3">
+          <MarkdownMessage content={m.chatText} />
         </div>
       )}
 

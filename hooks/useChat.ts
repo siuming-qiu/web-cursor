@@ -123,6 +123,51 @@ export function useChat(deps: UseChatDeps) {
     }));
   }, [updateAi]);
 
+  const appendFileWriteStream = useCallback((ev: Extract<ChatEvent, { type: typeof ChatEventType.FileWriteStream }>) => {
+    updateAi((m) => {
+      const streams = m.fileWriteStreams ?? [];
+      const existing = streams.find((stream) => stream.toolCallId === ev.toolCallId);
+      if (!existing) {
+        return {
+          ...m,
+          fileWriteStreams: [
+            ...streams,
+            {
+              toolCallId: ev.toolCallId,
+              path: ev.path,
+              content: ev.delta ?? "",
+              collapsed: false,
+            },
+          ],
+        };
+      }
+
+      return {
+        ...m,
+        fileWriteStreams: streams.map((stream) =>
+          stream.toolCallId === ev.toolCallId
+            ? {
+                ...stream,
+                path: ev.path ?? stream.path,
+                content: stream.content + (ev.delta ?? ""),
+                collapsed: false,
+              }
+            : stream
+        ),
+      };
+    });
+  }, [updateAi]);
+
+  const collapseFileWriteStreams = useCallback(() => {
+    updateAi((m) => ({
+      ...m,
+      fileWriteStreams: m.fileWriteStreams?.map((stream) => ({
+        ...stream,
+        collapsed: true,
+      })),
+    }));
+  }, [updateAi]);
+
   const openProjectChat = useCallback((project: ProjectRef) => {
     setProjectContext(project.id, undefined);
     setMessages([]);
@@ -239,6 +284,10 @@ export function useChat(deps: UseChatDeps) {
             }));
             deps.setPreviewStatus({ kind: "load", text: t("generatingImages") });
             setAgentActivity(t("generatingImages"));
+          } else if (ev.type === ChatEventType.FileWriteStream) {
+            appendFileWriteStream(ev);
+            deps.setPreviewStatus({ kind: "load", text: t("writingFiles") });
+            setAgentActivity(t("writingFiles"));
           } else if (ev.type === ChatEventType.FilesChanged) {
             filesChanged = true;
             if (ev.path && ev.operation) {
@@ -290,6 +339,7 @@ export function useChat(deps: UseChatDeps) {
           if (result.aborted) return;
 
           if (!result.previewToolCallId) {
+            collapseFileWriteStreams();
             if (result.filesChanged) {
               const preview = result.shouldRunPreviewForFilesChanged && result.filesChangedProjectId
                 ? await deps.runPreview(result.filesChangedProjectId)
@@ -346,7 +396,7 @@ export function useChat(deps: UseChatDeps) {
         return;
       }
     },
-    [appendFileChange, deps, locale, t, updateAi]
+    [appendFileChange, appendFileWriteStream, collapseFileWriteStreams, deps, locale, t, updateAi]
   );
 
   const send = useCallback(

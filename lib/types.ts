@@ -32,6 +32,13 @@ export type AgentFileChange = {
   oldPath?: string;
 };
 
+export type FileWriteStreamView = {
+  toolCallId: string;
+  path?: string;
+  content: string;
+  collapsed?: boolean;
+};
+
 export type ImageJobView = {
   id: string;
   status: ImageJobStatus;
@@ -75,6 +82,7 @@ export type Message =
       diff?: string;
       chatText?: string; // AI 直接回话/提问（reply），非写代码时显示
       fileChanges?: AgentFileChange[];
+      fileWriteStreams?: FileWriteStreamView[];
       imageRuns?: ImageRunView[];
       integrationCard?: IntegrationCardMeta;
     };

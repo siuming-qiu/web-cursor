@@ -67,7 +67,10 @@
     "phaseRuntimeFail": "Runtime error",
     "changeDelete": "Delete",
     "changeRename": "Rename",
-    "changeWrite": "Write"
+    "changeWrite": "Write",
+    "writingFile": "Writing file...",
+    "lines": "lines",
+    "collapse": "Collapse"
   },
   "Agent": {
     "filesUpdatedNoPreview": "Files updated; preview not triggered",

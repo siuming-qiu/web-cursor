@@ -67,7 +67,10 @@
     "phaseRuntimeFail": "运行报错",
     "changeDelete": "删除",
     "changeRename": "重命名",
-    "changeWrite": "写入"
+    "changeWrite": "写入",
+    "writingFile": "正在写入文件...",
+    "lines": "行",
+    "collapse": "收起"
   },
   "Agent": {
     "filesUpdatedNoPreview": "已更新文件，未触发预览",

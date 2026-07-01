@@ -31,6 +31,7 @@ export const ChatEventType = {
   Code: "code",
   Chat: "chat",
   ToolsCall: "tools_call",
+  FileWriteStream: "file_write_stream",
   ToolResult: "tool_result",
   ToolPending: "tool_pending",
   FilesChanged: "files_changed",
@@ -57,6 +58,7 @@ export type ChatEvent =
   | { type: typeof ChatEventType.Code; delta: string }
   | { type: typeof ChatEventType.Chat; delta: string }
   | { type: typeof ChatEventType.ToolsCall; index: number; name: ToolNameType | string; id: string }
+  | { type: typeof ChatEventType.FileWriteStream; toolCallId: string; path?: string; delta?: string }
   | { type: typeof ChatEventType.ToolResult; name: ToolNameType | string; status: "ok" | "error" }
   | {
       type: typeof ChatEventType.ToolPending;

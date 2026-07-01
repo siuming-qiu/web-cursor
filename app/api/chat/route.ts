@@ -24,6 +24,7 @@ import { FileChangeOperation } from "@/types/chat";
 import type { AttachmentSummary } from "@/types/attachment";
 import type { IntegrationCardMeta } from "@/types/integration";
 import { ToolName, ToolResultType, type ToolCallMeta } from "@/types/tool";
+import { extractWriteFileStreamUpdate, type WriteFileStreamState } from "@/server/writeFileStream";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,6 +76,7 @@ async function collectAssistantTurn(
 ): Promise<{ text: string; toolCalls: ToolCallMeta[] }> {
   const stream = await requestAssistant(rows, locale);
   const toolCalls = new Map<number, ToolCallMeta>();
+  const writeFileStreams = new Map<number, WriteFileStreamState>();
   let text = "";
 
   for await (const chunk of stream) {
@@ -93,6 +95,21 @@ async function collectAssistantTurn(
         arguments: (existing.arguments ?? "") + (tc.function?.arguments ?? ""),
       };
       toolCalls.set(index, next);
+
+      if (next.id && next.name === ToolName.WriteFile && tc.function?.arguments) {
+        const update = extractWriteFileStreamUpdate(next.arguments ?? "", writeFileStreams.get(index));
+        if (update) {
+          writeFileStreams.set(index, update.state);
+          if (update.path || update.delta) {
+            send({
+              type: ChatEventType.FileWriteStream,
+              toolCallId: next.id,
+              path: update.path,
+              delta: update.delta,
+            });
+          }
+        }
+      }
 
       if (tc.id) {
         send({
