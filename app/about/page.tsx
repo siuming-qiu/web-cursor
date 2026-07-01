@@ -16,22 +16,22 @@ export const metadata: Metadata = {
 
 const capabilities = [
   ["自然语言生成 React", "把一句产品需求、界面描述或 Figma 链接转成完整 React 项目文件，而不是只吐一段代码片段。"],
-  ["真实浏览器预览", "生成结果会在 iframe sandbox 中编译运行，页面是否能渲染由真实运行结果决定。"],
-  ["运行反馈驱动修复", "编译错误、运行错误、console 和渲染状态会回填给 agent，下一轮继续修复。"],
+  ["真实浏览器预览", "生成结果会在 WebContainer 中安装依赖并启动 dev server，再加载到 iframe 预览。"],
+  ["运行反馈驱动修复", "install/dev/browser runtime 错误会回填给 agent，下一轮继续修复。"],
   ["服务端持有模型密钥", "LLM 调用只发生在 Next.js Route Handler 中，浏览器端不会接触 API key。"],
 ];
 
 const flow = [
   ["1", "Describe", "用户描述要做的 React UI，或粘贴带 node-id 的 Figma 设计链接。"],
-  ["2", "Generate", "服务端 agent 读取上下文，通过文件工具写入 Vite React TypeScript 项目。"],
-  ["3", "Preview", "浏览器 workbench 编译项目，并在隔离 iframe 里运行生成结果。"],
+  ["2", "Generate", "服务端 agent 读取上下文，通过文件工具写入 Rsbuild React TypeScript 项目。"],
+  ["3", "Preview", "浏览器 workbench 用 WebContainer 运行 npm install 和 npm run dev，再用 iframe 打开 dev server URL。"],
   ["4", "Repair", "真实错误作为 tool result 回传，agent 基于结果继续修复直到可运行。"],
 ];
 
 const boundaries = [
   ["A 域 · LLM Agent", "Next.js Route Handler 持有模型密钥、读取 transcript、调用工具并流式返回结果。"],
-  ["B 域 · Workbench", "浏览器主线程管理聊天、文件、编译、预览状态和用户交互。"],
-  ["C 域 · Sandbox", "iframe 执行 AI 生成的不可信代码，并回传 RENDER_OK、RUNTIME_ERROR 和 CONSOLE。"],
+  ["B 域 · Workbench", "浏览器主线程管理聊天、文件、WebContainer、预览状态和用户交互。"],
+  ["C 域 · Preview iframe", "iframe 加载 WebContainer dev server URL，展示 AI 生成的不可信应用。"],
 ];
 
 export default function AboutPage() {

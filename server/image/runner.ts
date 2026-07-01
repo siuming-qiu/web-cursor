@@ -130,6 +130,7 @@ async function succeedJob(ctx: {
   job: ImageJobRow;
   bytes: Buffer;
   mimeType: Parameters<typeof saveGeneratedProjectAsset>[0]["mimeType"];
+  publicBaseUrl?: string;
 }) {
   const result = await saveGeneratedProjectAsset({
     ownerId: ctx.run.ownerId,
@@ -137,6 +138,7 @@ async function succeedJob(ctx: {
     imageJobId: ctx.job.id,
     bytes: ctx.bytes,
     mimeType: ctx.mimeType,
+    publicBaseUrl: ctx.publicBaseUrl,
   });
   const now = new Date();
   await db
@@ -151,7 +153,7 @@ async function succeedJob(ctx: {
     .where(and(eq(imageJobs.id, ctx.job.id), isNull(imageJobs.deletedAt)));
 }
 
-async function submitJob(run: ImageRunRow, job: ImageJobRow) {
+async function submitJob(run: ImageRunRow, job: ImageJobRow, options: { publicBaseUrl?: string }) {
   try {
     const inputImages = await resolveProviderInputImages({
       ownerId: run.ownerId,
@@ -166,7 +168,7 @@ async function submitJob(run: ImageRunRow, job: ImageJobRow) {
     });
 
     if (submitted.status === "completed") {
-      await succeedJob({ run, job, bytes: submitted.bytes, mimeType: submitted.mimeType });
+      await succeedJob({ run, job, bytes: submitted.bytes, mimeType: submitted.mimeType, publicBaseUrl: options.publicBaseUrl });
       return;
     }
 
@@ -184,7 +186,7 @@ async function submitJob(run: ImageRunRow, job: ImageJobRow) {
   }
 }
 
-async function pollJob(run: ImageRunRow, job: ImageJobRow) {
+async function pollJob(run: ImageRunRow, job: ImageJobRow, options: { publicBaseUrl?: string }) {
   const startedAt = job.startedAt?.getTime() ?? job.createdAt.getTime();
   if (Date.now() - startedAt > PROVIDER_TIMEOUT_MS) {
     await failJob(job.id, errorOf(ImageJobErrorCode.TimedOut, "Image provider timed out."));
@@ -211,7 +213,7 @@ async function pollJob(run: ImageRunRow, job: ImageJobRow) {
     return;
   }
 
-  await succeedJob({ run, job, bytes: result.bytes, mimeType: result.mimeType });
+  await succeedJob({ run, job, bytes: result.bytes, mimeType: result.mimeType, publicBaseUrl: options.publicBaseUrl });
 }
 
 async function toolResultAlreadyAppended(run: ImageRunRow): Promise<boolean> {
@@ -300,7 +302,10 @@ async function refreshRunStatus(runId: string) {
   await appendTerminalToolResult(run, result, errors.length ? "error" : "ok");
 }
 
-export async function runImageRunnerTick(batchSize = DEFAULT_BATCH_SIZE): Promise<ImageRunnerTickResult> {
+export async function runImageRunnerTick(
+  batchSize = DEFAULT_BATCH_SIZE,
+  options: { publicBaseUrl?: string } = {},
+): Promise<ImageRunnerTickResult> {
   const touchedRunIds = new Set<string>();
   let processed = 0;
 
@@ -309,13 +314,13 @@ export async function runImageRunnerTick(batchSize = DEFAULT_BATCH_SIZE): Promis
     if (!claimed) continue;
     processed++;
     touchedRunIds.add(item.run.id);
-    await submitJob(item.run, claimed);
+    await submitJob(item.run, claimed, options);
   }
 
   for (const item of await pollCandidates(Math.max(0, batchSize - processed))) {
     processed++;
     touchedRunIds.add(item.run.id);
-    await pollJob(item.run, item.job);
+    await pollJob(item.run, item.job, options);
   }
 
   for (const runId of touchedRunIds) {

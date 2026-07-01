@@ -47,7 +47,7 @@ type UseChatDeps = {
 };
 
 function previewSucceeded(result: ToolResult | null): boolean {
-  return result?.status === "ok" && result.type === ToolResultType.RenderOk;
+  return result?.status === "ok" && result.type === ToolResultType.ServerReady;
 }
 
 function previewSummary(

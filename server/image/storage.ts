@@ -17,6 +17,7 @@ import {
   type GenerateImageJobResult,
   type GeneratedImageMimeType as GeneratedImageMimeTypeValue,
 } from "@/types/image";
+import { SITE_URL } from "@/lib/site";
 
 export type ProviderInputImage = {
   dataUrl: string;
@@ -184,6 +185,7 @@ export async function saveGeneratedProjectAsset(ctx: {
   imageJobId: string;
   mimeType: GeneratedImageMimeTypeValue;
   bytes: Buffer;
+  publicBaseUrl?: string;
 }): Promise<GenerateImageJobResult> {
   const dimensions = imageDimensions(ctx.bytes, ctx.mimeType);
   const assetId = crypto.randomUUID();
@@ -194,7 +196,7 @@ export async function saveGeneratedProjectAsset(ctx: {
     contentType: ctx.mimeType,
   });
   void blob;
-  const assetUrl = `/api/project-assets/${assetId}`;
+  const assetUrl = new URL(`/api/project-assets/${assetId}`, ctx.publicBaseUrl ?? SITE_URL).toString();
 
   const [row] = await db.insert(projectAssets).values({
     id: assetId,

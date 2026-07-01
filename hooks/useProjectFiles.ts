@@ -8,17 +8,22 @@
 
 import { useCallback, useRef, useState } from "react";
 import { req } from "@/lib/api";
-import { buildExportHtml } from "@/lib/export";
-import { REQUIRED_REACT_PROJECT_FILES } from "@/lib/projectContract";
 import {
   FileContentAction,
   type ProjectFileContent,
   type ProjectFileSummary,
 } from "@/lib/projectTypes";
-import type { TranspileProjectFile } from "@/lib/transpile";
+import type { WebContainerProjectFile } from "@/lib/webcontainer/types";
 import { ChatEventType, type ChatEvent } from "@/types/chat";
 
 const APP_ENTRY_PATH = "src/App.tsx";
+const REQUIRED_RSBUILD_PROJECT_FILES = [
+  "package.json",
+  "rsbuild.config.ts",
+  "index.html",
+  "src/main.tsx",
+  "src/App.tsx",
+] as const;
 
 type FilesWithContentResponse = {
   files: ProjectFileContent[];
@@ -45,7 +50,7 @@ function chooseFile(files: ProjectFileSummary[], preferredPath?: string) {
 
 function hasCompleteReactProject(files: Pick<ProjectFileSummary, "path">[]) {
   const paths = new Set(files.map((file) => file.path));
-  return REQUIRED_REACT_PROJECT_FILES.every((path) => paths.has(path));
+  return REQUIRED_RSBUILD_PROJECT_FILES.every((path) => paths.has(path));
 }
 
 export function useProjectFiles() {
@@ -129,7 +134,7 @@ export function useProjectFiles() {
   );
 
   const readProjectFiles = useCallback(
-    async (projectId: string): Promise<TranspileProjectFile[]> => {
+    async (projectId: string): Promise<WebContainerProjectFile[]> => {
       if (fileContentsRef.current.size === 0) {
         await loadProjectFileContents(projectId);
       }
@@ -274,12 +279,6 @@ export function useProjectFiles() {
     }
   }, [confirmDiscardActiveFileDraft, loadFiles, markActiveFileSaved]);
 
-  const exportProjectHtml = useCallback(async (projectName: string) => {
-    const projectId = projectIdRef.current;
-    if (!projectId) throw new Error("当前没有项目，无法导出。");
-    return buildExportHtml(await readProjectFiles(projectId), projectName);
-  }, [readProjectFiles]);
-
   return {
     files,
     activePath,
@@ -297,6 +296,5 @@ export function useProjectFiles() {
     newFile,
     renameActiveFile,
     deleteActiveFile,
-    exportProjectHtml,
   };
 }

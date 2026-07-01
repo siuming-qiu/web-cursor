@@ -14,16 +14,32 @@ export const ToolName = {
 export type ToolName = typeof ToolName[keyof typeof ToolName];
 
 export const ToolResultType = {
-  RenderOk: "RENDER_OK",
-  CompileError: "COMPILE_ERROR",
-  RuntimeError: "RUNTIME_ERROR",
+  ServerReady: "SERVER_READY",
+  InstallError: "INSTALL_ERROR",
+  DevServerError: "DEV_SERVER_ERROR",
+  BrowserRuntimeError: "BROWSER_RUNTIME_ERROR",
   ToolInterrupted: "TOOL_INTERRUPTED",
 } as const;
 
 export type ToolResult =
-  | { status: "ok"; type: typeof ToolResultType.RenderOk; durationMs?: number }
-  | { status: "error"; type: typeof ToolResultType.CompileError; message: string }
-  | { status: "error"; type: typeof ToolResultType.RuntimeError; message: string; stack?: string }
+  | { status: "ok"; type: typeof ToolResultType.ServerReady; port: number; url: string; rawLog?: string; durationMs?: number }
+  | {
+      status: "error";
+      type: typeof ToolResultType.InstallError;
+      command: "npm install";
+      exitCode: number;
+      message: string;
+      rawLog: string;
+    }
+  | {
+      status: "error";
+      type: typeof ToolResultType.DevServerError;
+      command: "npm run dev -- --host 0.0.0.0 --port 5173";
+      exitCode: number | null;
+      message: string;
+      rawLog: string;
+    }
+  | { status: "error"; type: typeof ToolResultType.BrowserRuntimeError; message: string; stack?: string; rawLog?: string }
   | { status: "error"; type: typeof ToolResultType.ToolInterrupted; message: string };
 
 export type ToolCallMeta = {

@@ -17,12 +17,12 @@ export const metadata: Metadata = {
 const useCases = [
   ["Prototype React UI from a prompt", "Describe a dashboard, landing page, tool, or interactive component and let the agent create a runnable React project."],
   ["Turn Figma frames into implementation context", "Connect Figma, paste a node-specific design URL, and let the agent inspect layout facts before writing code."],
-  ["Repair with real browser feedback", "Compile errors, runtime failures, console output, and render status become feedback for the next agent turn."],
+  ["Repair with real browser feedback", "Install errors, dev server failures, and browser runtime errors become feedback for the next agent turn."],
 ];
 
 const facts = [
-  ["Project format", "Complete Vite React TypeScript files"],
-  ["Runtime", "Browser iframe sandbox"],
+  ["Project format", "Complete Rsbuild React TypeScript files"],
+  ["Runtime", "WebContainer + browser iframe preview"],
   ["Feedback loop", "Preview result to agent repair"],
   ["Model boundary", "LLM key stays on the server"],
 ];

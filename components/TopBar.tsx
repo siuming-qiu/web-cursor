@@ -9,7 +9,6 @@ import type { WorkbenchViewMode } from "@/lib/workbenchStore";
 const btn =
   "px-3 py-1.5 rounded-lg text-[13px] inline-flex items-center gap-1.5 border transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
 const btnGhost = `${btn} bg-panel2 border-border text-fg hover:border-accent hover:bg-[#171714]`;
-const btnPrimary = `${btn} bg-accent border-accent text-white font-medium hover:bg-[#d04200]`;
 const modeBtn =
   "inline-flex h-8 items-center justify-center gap-2 rounded-full px-5 text-[13px] font-medium transition-colors";
 
@@ -22,7 +21,6 @@ export default function TopBar({
   onViewModeChange,
   onHome,
   onRerun,
-  onExport,
 }: {
   projName: string;
   canAct: boolean;
@@ -32,14 +30,12 @@ export default function TopBar({
   onViewModeChange?: (mode: WorkbenchViewMode) => void;
   onHome?: () => void;
   onRerun?: () => void;
-  onExport?: () => void;
 }) {
   const t = useTranslations("TopBar");
   const common = useTranslations("Common");
   const locale = useLocale();
   const [localeOpen, setLocaleOpen] = useState(false);
   const showModeSwitch = viewMode && onViewModeChange;
-  const showActions = onRerun || onExport;
   const previewRefreshing = previewRunPhase !== "idle";
   const previewNotified = !previewRefreshing && previewHasUpdate;
   const currentLocaleLabel = locale === "en" ? "EN" : "中";
@@ -168,14 +164,9 @@ export default function TopBar({
           </div>
         )}
       </div>
-      {showActions && onRerun && (
+      {onRerun && (
         <button className={btnGhost} disabled={!canAct} onClick={onRerun}>
           ↻ {t("rerun")}
-        </button>
-      )}
-      {showActions && onExport && (
-        <button className={btnPrimary} disabled={!canAct} onClick={onExport}>
-          ⬇ {t("exportHtml")}
         </button>
       )}
     </div>

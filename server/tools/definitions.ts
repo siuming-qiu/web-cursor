@@ -35,7 +35,7 @@ export const toolDefinitions = [
   },
   {
     name: ToolName.WriteFile,
-    description: "创建或完整覆盖项目中的一个文件。content 必须是完整文件内容，不是 patch。写 package.json 时，用 webCursor.esmExternal 配置 esm.sh external 依赖；react 与 react-dom 应写入该数组以保证单 React 实例。",
+    description: "创建或完整覆盖项目中的一个文件。content 必须是完整文件内容，不是 patch。写 package.json 时必须声明 Rsbuild React 项目所需 scripts、dependencies 和 devDependencies；不要写 Vite 或 esm.sh/webCursor 配置。",
     parameters: {
       type: "object",
       properties: {
@@ -89,7 +89,7 @@ export const toolDefinitions = [
   {
     name: ToolName.RunPreview,
     description:
-      "在浏览器沙箱中编译并运行当前项目，返回 RENDER_OK、COMPILE_ERROR 或 RUNTIME_ERROR。只在一组自洽项目文件改动完成后做阶段性验收；不要在项目骨架未完整、本地 import 未闭合或明显半成品状态下调用。",
+      "在浏览器 WebContainer 中安装依赖并运行当前 Rsbuild 项目，返回 SERVER_READY、INSTALL_ERROR、DEV_SERVER_ERROR 或 BROWSER_RUNTIME_ERROR。只在一组自洽项目文件改动完成后做阶段性验收；不要在项目骨架未完整、本地 import 未闭合或明显半成品状态下调用。",
     parameters: {
       type: "object",
       properties: {},

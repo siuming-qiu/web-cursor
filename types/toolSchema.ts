@@ -68,19 +68,34 @@ export const ReplyArgsSchema = z.object({
 export const ToolResultSchema = z.discriminatedUnion("type", [
   z.object({
     status: z.literal("ok"),
-    type: z.literal(ToolResultType.RenderOk),
+    type: z.literal(ToolResultType.ServerReady),
+    port: z.number().int(),
+    url: z.string().url(),
+    rawLog: z.string().optional(),
     durationMs: z.number().optional(),
   }),
   z.object({
     status: z.literal("error"),
-    type: z.literal(ToolResultType.CompileError),
+    type: z.literal(ToolResultType.InstallError),
+    command: z.literal("npm install"),
+    exitCode: z.number().int(),
     message: z.string(),
+    rawLog: z.string(),
   }),
   z.object({
     status: z.literal("error"),
-    type: z.literal(ToolResultType.RuntimeError),
+    type: z.literal(ToolResultType.DevServerError),
+    command: z.literal("npm run dev -- --host 0.0.0.0 --port 5173"),
+    exitCode: z.number().int().nullable(),
+    message: z.string(),
+    rawLog: z.string(),
+  }),
+  z.object({
+    status: z.literal("error"),
+    type: z.literal(ToolResultType.BrowserRuntimeError),
     message: z.string(),
     stack: z.string().optional(),
+    rawLog: z.string().optional(),
   }),
   z.object({
     status: z.literal("error"),

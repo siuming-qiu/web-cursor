@@ -21,7 +21,6 @@ import TopBar from "@/components/TopBar";
 import ChatPanel from "@/components/ChatPanel";
 import EditorPanel from "@/components/EditorPanel";
 import PreviewPanel from "@/components/PreviewPanel";
-import ExportModal from "@/components/ExportModal";
 import Toast from "@/components/Toast";
 
 const REQUIRED_PROJECT_FILES = ["package.json", "index.html", "src/main.tsx", "src/App.tsx"] as const;
@@ -114,7 +113,6 @@ export default function Workbench({ projectId }: { projectId?: string }) {
     runPreview,
     currentConversationId,
   } = s;
-  const [exportOpen, setExportOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [projectDetail, setProjectDetail] = useState<ProjectDetail | null>(null);
   const [loadingProject, setLoadingProject] = useState(!!projectId);
@@ -273,7 +271,6 @@ export default function Workbench({ projectId }: { projectId?: string }) {
         onViewModeChange={setViewMode}
         onHome={projectId ? () => router.push("/") : undefined}
         onRerun={rerunPreview}
-        onExport={() => setExportOpen(true)}
       />
 
       {loadingProject ? (
@@ -380,22 +377,16 @@ export default function Workbench({ projectId }: { projectId?: string }) {
                 setOverlay={s.setOverlay}
                 previewActive={s.previewActive}
                 previewRunPhase={s.previewRunPhase}
+                previewUrl={s.previewUrl}
+                runLogs={s.runLogs}
                 canAct={s.hasResult && !s.busy}
                 onRerun={rerunPreview}
-                onExport={() => setExportOpen(true)}
               />
             </div>
           </div>
         </main>
       )}
 
-      {exportOpen && (
-        <ExportModal
-          onBuildHtml={s.exportProjectHtml}
-          onClose={() => setExportOpen(false)}
-          onToast={showToast}
-        />
-      )}
       <Toast message={toast} />
     </div>
   );

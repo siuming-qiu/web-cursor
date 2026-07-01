@@ -23,7 +23,9 @@ function authorized(req: Request): boolean {
 
 async function runAuthorizedTick(req: Request, batchSize?: number) {
   if (!authorized(req)) return new Response("Unauthorized", { status: 401 });
-  return Response.json(await runImageRunnerTick(batchSize));
+  return Response.json(await runImageRunnerTick(batchSize, {
+    publicBaseUrl: new URL(req.url).origin,
+  }));
 }
 
 export async function GET(req: Request) {

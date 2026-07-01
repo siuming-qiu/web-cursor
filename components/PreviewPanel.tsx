@@ -2,7 +2,6 @@
 
 import type { RefObject } from "react";
 import { useTranslations } from "next-intl";
-import { RUNNER_HTML } from "@/lib/sandbox/runner";
 import type { Status, Overlay } from "@/lib/types";
 import type { PreviewRunPhase } from "@/hooks/usePreview";
 
@@ -29,9 +28,10 @@ export default function PreviewPanel({
   setOverlay,
   previewActive,
   previewRunPhase,
+  previewUrl,
+  runLogs,
   canAct,
   onRerun,
-  onExport,
 }: {
   iframeRef: RefObject<HTMLIFrameElement | null>;
   status: Status;
@@ -39,28 +39,26 @@ export default function PreviewPanel({
   setOverlay: (fn: (o: Overlay) => Overlay) => void;
   previewActive: boolean;
   previewRunPhase: PreviewRunPhase;
+  previewUrl: string | null;
+  runLogs: string[];
   canAct: boolean;
   onRerun: () => void;
-  onExport: () => void;
 }) {
   const t = useTranslations("Preview");
   const refreshing = previewRunPhase !== "idle";
   const refreshingText: Record<PreviewRunPhase, string> = {
     idle: "",
     reading: t("reading"),
-    compiling: t("compiling"),
-    running: t("running"),
+    booting: t("booting"),
+    mounting: t("mounting"),
+    installing: t("installing"),
+    starting: t("starting"),
+    "server-ready": t("serverReady"),
   };
+  const logText = runLogs.join("");
 
   return (
-    <div className="grid min-w-0 h-full flex-1 grid-rows-[42px_39px_minmax(0,1fr)] bg-panel">
-      <div className="flex flex-none items-center justify-between gap-3 border-b border-border px-4 text-[12px] text-muted">
-        <div className="min-w-0">
-          <div className="font-semibold text-[13px] tracking-wide text-fg">{t("title")}</div>
-        </div>
-        <span className="text-[12px] font-semibold text-muted">{t("sandboxResult")}</span>
-      </div>
-
+    <div className="grid min-w-0 h-full flex-1 grid-rows-[39px_minmax(0,1fr)] bg-panel">
       <div className={"flex flex-none items-center gap-3 border-b border-border bg-panel2 px-4 text-[12.5px] " + TEXT[status.kind]}>
         <span className={"h-[9px] w-[9px] shrink-0 rounded-full " + LED[status.kind]} />
         <span className="shrink-0 font-medium">{status.text || t("waiting")}</span>
@@ -68,9 +66,6 @@ export default function PreviewPanel({
         <div className="ml-auto flex items-center gap-2">
           <button className={toolBtn} type="button" disabled={!canAct} onClick={onRerun}>
             ↻ {t("rerun")}
-          </button>
-          <button className={toolBtn + " border-accent text-accent"} type="button" disabled={!canAct} onClick={onExport}>
-            ↓ {t("exportHtml")}
           </button>
         </div>
       </div>
@@ -88,8 +83,8 @@ export default function PreviewPanel({
         <iframe
           id="preview"
           ref={iframeRef}
-          sandbox="allow-scripts"
-          srcDoc={RUNNER_HTML}
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          src={previewUrl ?? "about:blank"}
           title="preview"
           className={
             "block h-full w-full rounded-lg border border-border bg-white transition " +
@@ -103,6 +98,18 @@ export default function PreviewPanel({
               <span className="h-3 w-3 animate-spin rounded-full border-2 border-[#3a3832] border-t-accent" />
               {refreshingText[previewRunPhase]}
             </div>
+          </div>
+        )}
+
+        {runLogs.length > 0 && refreshing && (
+          <div className="absolute bottom-5 left-5 right-5 z-[2] max-h-[34%] overflow-hidden rounded-lg border border-border bg-bg/95 shadow-lg">
+            <div className="flex h-8 items-center justify-between border-b border-border px-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">
+              <span>{t("npmDevLog")}</span>
+              <span>{runLogs.length}</span>
+            </div>
+            <pre className="max-h-[190px] overflow-auto whitespace-pre-wrap p-3 font-mono text-[11.5px] leading-[1.45] text-[#d7d0c2]">
+              {logText}
+            </pre>
           </div>
         )}
 

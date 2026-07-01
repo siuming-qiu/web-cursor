@@ -15,10 +15,10 @@ Web Cursor helps users generate, edit, preview, and repair React UI code in a br
 ## Core Capabilities
 
 - Natural language to React project files.
-- Browser-based React preview in an isolated iframe sandbox.
-- Agent loop that uses compile, runtime, console, and render feedback to repair generated code.
+- Browser-based React preview through WebContainer dev server URLs loaded in an isolated iframe.
+- Agent loop that uses install, dev server, browser runtime, and preview feedback to repair generated code.
 - Figma design link inspection when the user connects Figma and provides a node-specific design URL.
-- Project files are represented as a complete Vite React TypeScript project, including package.json, index.html, src/main.tsx, and src/App.tsx.
+- Project files are represented as a complete Rsbuild React TypeScript project, including package.json, rsbuild.config.ts, index.html, src/main.tsx, and src/App.tsx.
 
 ## Architecture
 

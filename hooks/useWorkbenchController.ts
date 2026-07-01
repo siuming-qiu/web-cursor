@@ -169,10 +169,6 @@ export function useWorkbenchController() {
     await handleUserPersistedFileChange(await files.deleteActiveFile());
   }, [files.deleteActiveFile, handleUserPersistedFileChange]);
 
-  const exportProjectHtml = useCallback(() => {
-    return files.exportProjectHtml(projName);
-  }, [files.exportProjectHtml, projName]);
-
   return {
     iframeRef: preview.iframeRef,
     curAiId: chat.curAiId,
@@ -188,6 +184,8 @@ export function useWorkbenchController() {
     overlay: preview.overlay,
     setOverlay: preview.setOverlay,
     previewRunPhase: preview.previewRunPhase,
+    previewUrl: preview.previewUrl,
+    runLogs: preview.runLogs,
     busy: chat.busy,
     hasResult: preview.hasResult,
     previewActive: preview.previewActive,
@@ -204,7 +202,6 @@ export function useWorkbenchController() {
     newFile,
     renameActiveFile,
     deleteActiveFile,
-    exportProjectHtml,
     send: chat.send,
     resume: chat.resume,
     stop: chat.stop,
