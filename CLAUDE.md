@@ -59,6 +59,67 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 - 好品味:消除特殊情况,函数 < 50 行、嵌套 < 3 层,简单可用胜过聪明复杂。
 - 向后兼容:不破坏已跑通的闭环。
 
+## 前端设计原则:状态拓扑优先
+
+前端代码先设计**状态拓扑**,再设计组件树。
+
+组件树描述 UI 结构;状态拓扑描述事实由谁拥有、变化从哪里发生、影响传到哪里。状态拓扑不清晰时,代码会自然退化为:外层组件囤积状态、子组件被动接收长 props、`useEffect` 在渲染后修补状态关系。
+
+### useEffect 的定位
+
+`useEffect` 不是业务流程编排工具,也不是 React state 之间的同步工具。
+
+`useEffect` 只用于把 React 的结果同步到 React 之外的系统,例如 DOM、iframe、WebContainer、Monaco、window event、timer、网络订阅、资源清理等。
+
+凡是不涉及外部系统的状态变化,优先用以下方式表达:
+
+- **action**:事件发生时立即完成相关状态变更。
+- **derived value**:从已有 state 在 render 阶段计算,不落进新 state。
+- **state owner 调整**:把状态移动到真正拥有它的组件或 hook。
+- **reducer / state machine**:把多个相关状态合并为明确的状态转移模型。
+
+如果一个 effect 的核心逻辑是"观察 state A,然后 set state B",这通常不是 effect,而是状态拓扑错误的信号。先修 owner 和状态模型,不要用 effect 补偿。
+
+### 组件粒度的判断标准
+
+组件粒度不是按 JSX 行数决定,而是按状态边界决定。
+
+一个组件应该拥有一组高内聚的事实:
+
+- 同一个用户意图会同时改变它们。
+- 它们共享生命周期。
+- 它们由同一类外部事件驱动。
+- 它们被同一个 UI 区域主要消费。
+
+如果一个组件同时拥有多个互不相同生命周期的状态域,它就过粗。过粗组件会自然产生长 props、补偿型 effect 和"controller 大对象"。
+
+### 顶层组件的职责
+
+顶层组件只负责装配稳定边界:
+
+- 选择页面模式。
+- 连接少量跨域 coordinator。
+- 布局主要区域。
+- 传递领域模型,而不是展开所有字段。
+
+顶层组件不应该拥有编辑器草稿、预览运行状态、聊天流状态、侧栏 loading 状态等细节事实。
+
+### Hook 的边界
+
+Hook 的价值是定义状态域,不是把代码从组件里搬出去。
+
+好的 hook 表示一个清晰的状态 owner 或外部系统适配层,例如"项目文件状态"、"预览运行状态"、"聊天 agent 状态"。
+
+坏的 hook 会把多个状态域聚合成一个大对象,再让页面组件继续分发它。这只是把上帝组件换成上帝 hook。
+
+新增 state、hook 或 effect 前,先回答:
+
+1. 这个事实的 owner 是谁?
+2. 这个变化来自用户 action、派生计算,还是外部系统?
+3. 这个状态是否和现有状态共享生命周期?
+4. 如果不用 effect,能否通过 action、derived value、reducer 或移动 owner 表达?
+5. 顶层组件是否只是装配,还是开始持有细节事实?
+
 ## API 方法约定
 
 - 项目内 Route Handler 只写 `GET` / `POST`。
