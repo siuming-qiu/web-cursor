@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Copy, Database, ExternalLink, ShieldCheck, Terminal } from "lucide-react";
 import Link from "next/link";
-import FigmaIntegrationCard from "@/components/FigmaIntegrationCard";
+import FigmaIntegrationCard from "@/components/integrations/figma/FigmaIntegrationCard";
 import { getOwnerId } from "@/lib/owner";
 
 function logLine(message: string) {

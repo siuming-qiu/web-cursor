@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { req } from "@/lib/api";
 import type { Project } from "@/lib/projectTypes";
-import ProjectHome from "@/components/ProjectHome";
+import ProjectHome from "@/components/project/ProjectHome";
 import Workbench from "@/components/Workbench";
 
 function EntrySkeleton() {

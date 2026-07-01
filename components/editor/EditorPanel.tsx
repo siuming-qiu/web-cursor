@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { FormEvent, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { FileCode2, FilePlus2, Folder, PencilLine, Save, Trash2, X } from "lucide-react";
-import Spinner from "./Spinner";
+import Spinner from "@/components/common/Spinner";
 import type { ProjectFileSummary } from "@/lib/projectTypes";
 
 const CodeEditor = dynamic(() => import("./CodeEditor"), { ssr: false });

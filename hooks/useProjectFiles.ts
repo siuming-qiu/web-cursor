@@ -13,17 +13,9 @@ import {
   type ProjectFileContent,
   type ProjectFileSummary,
 } from "@/lib/projectTypes";
+import { APP_ENTRY_PATH, hasCompleteReactProject } from "@/lib/projectContract";
 import type { WebContainerProjectFile } from "@/lib/webcontainer/types";
 import { ChatEventType, type ChatEvent } from "@/types/chat";
-
-const APP_ENTRY_PATH = "src/App.tsx";
-const REQUIRED_RSBUILD_PROJECT_FILES = [
-  "package.json",
-  "rsbuild.config.ts",
-  "index.html",
-  "src/main.tsx",
-  "src/App.tsx",
-] as const;
 
 type FilesWithContentResponse = {
   files: ProjectFileContent[];
@@ -46,11 +38,6 @@ function chooseFile(files: ProjectFileSummary[], preferredPath?: string) {
   if (preferredPath && files.some((file) => file.path === preferredPath)) return preferredPath;
   if (files.some((file) => file.path === APP_ENTRY_PATH)) return APP_ENTRY_PATH;
   return files[0]?.path;
-}
-
-function hasCompleteReactProject(files: Pick<ProjectFileSummary, "path">[]) {
-  const paths = new Set(files.map((file) => file.path));
-  return REQUIRED_RSBUILD_PROJECT_FILES.every((path) => paths.has(path));
 }
 
 export function useProjectFiles() {

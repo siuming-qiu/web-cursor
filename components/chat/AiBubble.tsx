@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import Spinner from "./Spinner";
+import Spinner from "@/components/common/Spinner";
 import MarkdownMessage from "./MarkdownMessage";
-import FigmaIntegrationCard from "./FigmaIntegrationCard";
+import FigmaIntegrationCard from "@/components/integrations/figma/FigmaIntegrationCard";
 import ImageRunCard from "./ImageRunCard";
 import type { AgentFileChange } from "@/lib/types";
 import type { Message, Phase } from "@/lib/types";

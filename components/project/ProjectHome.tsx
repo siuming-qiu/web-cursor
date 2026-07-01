@@ -12,8 +12,8 @@ import { useLocale, useTranslations } from "next-intl";
 import { req } from "@/lib/api";
 import type { Project } from "@/lib/projectTypes";
 import { formatTime, normalizeCreatedProject } from "@/lib/projectTypes";
-import TopBar from "@/components/TopBar";
-import Toast from "@/components/Toast";
+import TopBar from "@/components/common/TopBar";
+import Toast from "@/components/common/Toast";
 
 export default function ProjectHome({ initialProjects }: { initialProjects: Project[] }) {
   const router = useRouter();
