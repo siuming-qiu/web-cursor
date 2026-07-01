@@ -16,11 +16,13 @@ export default function CodeEditor({
   value,
   onChange,
   onSave,
+  readOnly = false,
 }: {
   path: string;
   value: string;
   onChange: (value: string) => void;
   onSave?: () => void;
+  readOnly?: boolean;
 }) {
   const onSaveRef = useRef(onSave);
 
@@ -35,7 +37,9 @@ export default function CodeEditor({
       path={path}
       theme="vs-dark"
       value={value}
-      onChange={(next) => onChange(next ?? "")}
+      onChange={(next) => {
+        if (!readOnly) onChange(next ?? "");
+      }}
       onMount={(editor, monaco) => {
         monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
           noSemanticValidation: true,
@@ -50,6 +54,8 @@ export default function CodeEditor({
         scrollBeyondLastLine: false,
         automaticLayout: true,
         wordWrap: "off",
+        readOnly,
+        domReadOnly: readOnly,
         renderLineHighlight: "none",
         padding: { top: 12 },
       }}

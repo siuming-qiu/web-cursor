@@ -100,12 +100,14 @@ export default function ChatPanel({
   onSend,
   onResume,
   onStop,
+  readOnly = false,
 }: {
   messages: Message[];
   projectId?: string;
   onSend: (text: string, attachments?: SendAttachment[]) => void;
   onResume: () => void;
   onStop: () => void;
+  readOnly?: boolean;
 }) {
   const t = useTranslations("Chat");
   const busy = useConversationStore((state) => state.busy);
@@ -165,7 +167,7 @@ export default function ChatPanel({
         )}
       </div>
 
-      <Composer busy={busy} projectId={projectId} onSend={onSend} onStop={onStop} />
+      {!readOnly && <Composer busy={busy} projectId={projectId} onSend={onSend} onStop={onStop} />}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Check, ChevronDown } from "lucide-react";
 import type { PreviewRunPhase } from "@/hooks/usePreview";
@@ -21,6 +22,7 @@ export default function TopBar({
   onViewModeChange,
   onHome,
   onRerun,
+  rightSlot,
 }: {
   projName: string;
   canAct: boolean;
@@ -30,6 +32,7 @@ export default function TopBar({
   onViewModeChange?: (mode: WorkbenchViewMode) => void;
   onHome?: () => void;
   onRerun?: () => void;
+  rightSlot?: ReactNode;
 }) {
   const t = useTranslations("TopBar");
   const common = useTranslations("Common");
@@ -164,6 +167,7 @@ export default function TopBar({
           </div>
         )}
       </div>
+      {rightSlot}
       {onRerun && (
         <button className={btnGhost} disabled={!canAct} onClick={onRerun}>
           ↻ {t("rerun")}

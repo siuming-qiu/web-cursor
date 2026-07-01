@@ -149,6 +149,25 @@ export const chatAttachments = pgTable("chat_attachments", {
   conversationIdx: index("idx_chat_attachments_conversation").on(t.conversationId),
 }));
 
+export const showcaseCases = pgTable("showcase_cases", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  slug: text("slug").notNull(),
+  ownerId: text("owner_id").notNull(),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  conversationId: uuid("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  sortOrder: integer("sort_order").notNull().default(1000),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  slugUnique: uniqueIndex("uq_showcase_cases_slug").on(t.slug),
+  publishedIdx: index("idx_showcase_cases_published").on(t.publishedAt, t.sortOrder),
+  projectIdx: index("idx_showcase_cases_project").on(t.projectId),
+  conversationIdx: index("idx_showcase_cases_conversation").on(t.conversationId),
+}));
+
 export const figmaConnections = pgTable("figma_connections", {
   id: uuid("id").primaryKey().defaultRandom(),
   ownerId: text("owner_id").notNull(),
