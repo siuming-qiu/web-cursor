@@ -42,7 +42,6 @@ export default function ProjectHome({ initialProjects }: { initialProjects: Proj
     <div className="h-screen flex flex-col">
       <TopBar
         projName={common("myProjects")}
-        canAct={false}
       />
 
       <main className="flex-1 min-h-0 overflow-y-auto bg-bg px-8 py-8">

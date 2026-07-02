@@ -187,10 +187,8 @@ export default function ShowcaseWorkbench({ detail }: { detail: ShowcaseDetail }
     <div className="flex h-screen min-h-0 flex-col bg-bg text-fg">
       <TopBar
         projName={detail.title}
-        canAct={false}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
-        onHome={() => { window.location.href = "/showcase"; }}
         rightSlot={
           <span className="rounded-full border border-border bg-codebg px-3 py-1 text-[12px] text-muted">
             只读案例

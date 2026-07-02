@@ -113,8 +113,8 @@ export default function HomePage({ showcases }: HomePageProps) {
             onClick={() => router.push("/")}
             aria-label="Web Cursor 首页"
           >
-            <span className="grid h-8 w-8 flex-none place-items-center rounded-lg border border-[#2d2b25] bg-[#0d0d0b] text-[#f54e00]">
-              <Code2 size={16} strokeWidth={2.2} />
+            <span className="grid h-8 w-8 flex-none place-items-center rounded-lg border border-[#2d2b25] bg-[#0d0d0b]">
+              <img src="/icon.png" alt="" className="h-5 w-5 rounded-[4px]" />
             </span>
             {!collapsed && <span className="truncate text-sm font-semibold">Web Cursor</span>}
           </button>
@@ -194,7 +194,6 @@ export default function HomePage({ showcases }: HomePageProps) {
             >
               <Menu size={16} />
             </button>
-            <span className="truncate text-sm font-semibold">Web Cursor</span>
           </div>
           <nav className="flex flex-none items-center gap-1.5" aria-label="主导航">
             <Link className="rounded-lg px-3 py-2 text-[13px] text-[#b8b2a6] transition hover:bg-[#11110f] hover:text-[#f54e00]" href="/showcase">

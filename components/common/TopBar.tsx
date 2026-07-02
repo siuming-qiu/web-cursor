@@ -7,31 +7,24 @@ import { Check, ChevronDown } from "lucide-react";
 import type { PreviewRunPhase } from "@/hooks/usePreview";
 import type { WorkbenchViewMode } from "@/lib/workbenchStore";
 
-const btn =
-  "px-3 py-1.5 rounded-lg text-[13px] inline-flex items-center gap-1.5 border transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
-const btnGhost = `${btn} bg-panel2 border-border text-fg hover:border-accent hover:bg-[#171714]`;
 const modeBtn =
   "inline-flex h-8 items-center justify-center gap-2 rounded-full px-5 text-[13px] font-medium transition-colors";
 
 export default function TopBar({
   projName,
-  canAct,
   viewMode,
   previewRunPhase = "idle",
   previewHasUpdate = false,
   onViewModeChange,
   onHome,
-  onRerun,
   rightSlot,
 }: {
   projName: string;
-  canAct: boolean;
   viewMode?: WorkbenchViewMode;
   previewRunPhase?: PreviewRunPhase;
   previewHasUpdate?: boolean;
   onViewModeChange?: (mode: WorkbenchViewMode) => void;
   onHome?: () => void;
-  onRerun?: () => void;
   rightSlot?: ReactNode;
 }) {
   const t = useTranslations("TopBar");
@@ -54,22 +47,27 @@ export default function TopBar({
     window.location.reload();
   }
 
+  function goHome() {
+    if (onHome) {
+      onHome();
+      return;
+    }
+    window.location.href = "/";
+  }
+
   return (
     <div className="h-12 flex-none flex items-center gap-3 px-4 bg-panel border-b border-border">
-      <div className="font-semibold tracking-wide flex items-center gap-[7px]">
-        <span className="w-[9px] h-[9px] rounded-full bg-accent shadow-[0_0_14px_rgba(245,78,0,0.55)]" />
-        Web Cursor
-      </div>
+      <button
+        type="button"
+        className="grid h-8 w-8 flex-none place-items-center rounded-lg border border-border bg-codebg transition hover:border-accent hover:bg-[#171714] focus:border-accent focus:outline-none"
+        aria-label="返回首页"
+        title="Web Cursor"
+        onClick={goHome}
+      >
+        <img src="/icon.png" alt="" className="h-5 w-5 rounded-[4px]" />
+      </button>
       <span className="text-muted text-[13px]">
-        {onHome && (
-          <button
-            className="mr-2 px-2 py-1 rounded-md text-accent hover:bg-panel2"
-            onClick={onHome}
-          >
-            {common("myProjects")}
-          </button>
-        )}
-        · <b className="text-fg font-medium">{projName}</b>
+        <b className="text-fg font-medium">{projName}</b>
       </span>
       <div className="flex-1" />
       {showModeSwitch && (
@@ -168,11 +166,6 @@ export default function TopBar({
         )}
       </div>
       {rightSlot}
-      {onRerun && (
-        <button className={btnGhost} disabled={!canAct} onClick={onRerun}>
-          ↻ {t("rerun")}
-        </button>
-      )}
     </div>
   );
 }

@@ -10,23 +10,15 @@ import TopBar from "@/components/common/TopBar";
 type WorkbenchTopBarProps = {
   projectRoute: boolean;
   projName: string;
-  canAct: boolean;
   previewRunPhase: PreviewRunPhase;
   status: Status;
-  currentProjectId?: string;
-  busy: boolean;
-  runPreview: (projectId: string) => Promise<unknown>;
 };
 
 export default function WorkbenchTopBar({
   projectRoute,
   projName,
-  canAct,
   previewRunPhase,
   status,
-  currentProjectId,
-  busy,
-  runPreview,
 }: WorkbenchTopBarProps) {
   const router = useRouter();
   const viewMode = useWorkbenchStore((state) => state.viewMode);
@@ -53,24 +45,14 @@ export default function WorkbenchTopBar({
     setPreviewHasUpdate(true);
   }, [previewRunPhase, status.kind, viewMode]);
 
-  const rerunPreview = useCallback(() => {
-    if (!currentProjectId || busy) return;
-    changeViewMode("preview");
-    requestAnimationFrame(() => {
-      void runPreview(currentProjectId);
-    });
-  }, [busy, changeViewMode, currentProjectId, runPreview]);
-
   return (
     <TopBar
       projName={projName}
-      canAct={canAct}
       viewMode={viewMode}
       previewRunPhase={previewRunPhase}
       previewHasUpdate={previewHasUpdate}
       onViewModeChange={changeViewMode}
       onHome={projectRoute ? () => router.push("/") : undefined}
-      onRerun={rerunPreview}
     />
   );
 }

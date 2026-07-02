@@ -90,12 +90,8 @@ export default function Workbench({
       <WorkbenchTopBar
         projectRoute={!!projectId}
         projName={projName}
-        canAct={hasResult && !busy}
         previewRunPhase={previewRunPhase}
         status={status}
-        currentProjectId={currentProjectId}
-        busy={busy}
-        runPreview={runPreview}
       />
 
       {projectId ? (
