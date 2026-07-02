@@ -33,9 +33,12 @@ function persistedChangeAffectsPreview(change: PersistedFileChange) {
   return pathAffectsPreview(change.path) || (change.oldPath ? pathAffectsPreview(change.oldPath) : false);
 }
 
-export function useWorkbenchController() {
+export function useWorkbenchController(options: {
+  onProjectInitialized?: (project: { projectId: string; conversationId: string }) => void;
+} = {}) {
   const tPreview = useTranslations("Preview");
   const tCommon = useTranslations("Common");
+  const onProjectInitialized = options.onProjectInitialized;
   const files = useProjectFiles();
   const preview = usePreview(files.readProjectFiles);
   const [projName, setProjName] = useState(tCommon("untitledProject"));
@@ -95,8 +98,10 @@ export function useWorkbenchController() {
         showStack: false,
       });
     },
-    onProjectInitialized: ({ projectId }: { projectId: string; conversationId: string }) => {
+    onProjectInitialized: (project: { projectId: string; conversationId: string }) => {
+      const { projectId } = project;
       files.setProjectFiles({ id: projectId, files: [] });
+      onProjectInitialized?.(project);
     },
     onTitleUpdate: (update: { conversationId: string; title: string; projectTitle?: string }) => {
       if (update.projectTitle) setProjName(update.projectTitle);
@@ -106,6 +111,7 @@ export function useWorkbenchController() {
     files.setProjectFiles,
     files.syncFileChange,
     handlePersistedFileChange,
+    onProjectInitialized,
     preview.runPreview,
     preview.setOverlay,
     preview.setStatus,

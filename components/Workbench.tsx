@@ -6,16 +6,33 @@
  */
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkbenchController } from "@/hooks/useWorkbenchController";
 import WorkbenchTopBar from "@/components/workbench/WorkbenchTopBar";
 import ChatSidebar from "@/components/workbench/ChatSidebar";
 import WorkspacePanels from "@/components/workbench/WorkspacePanels";
 import ProjectWorkbenchBody from "@/components/workbench/ProjectWorkbenchBody";
 import Toast from "@/components/common/Toast";
+import type { SendAttachment } from "@/lib/types";
 
-export default function Workbench({ projectId }: { projectId?: string }) {
-  const s = useWorkbenchController();
+export default function Workbench({
+  projectId,
+  initialPrompt,
+  initialAttachments = [],
+}: {
+  projectId?: string;
+  initialPrompt?: string;
+  initialAttachments?: SendAttachment[];
+}) {
+  const handleProjectInitialized = useCallback((project: { projectId: string; conversationId: string }) => {
+    if (projectId) return;
+    const nextPath = `/p/${project.projectId}`;
+    if (window.location.pathname !== nextPath) {
+      window.history.replaceState(null, "", nextPath);
+    }
+  }, [projectId]);
+
+  const s = useWorkbenchController({ onProjectInitialized: handleProjectInitialized });
   const {
     iframeRef, messages, files, activePath, code, hasActiveFileDraft, writing, activeFileSyncing,
     projName, status, overlay, setOverlay, previewRunPhase, previewUrl, runLogs, busy, hasResult,
@@ -24,6 +41,7 @@ export default function Workbench({ projectId }: { projectId?: string }) {
     saveActiveFile, newFile, renameActiveFile, deleteActiveFile, send, resume, stop,
   } = s;
   const [toast, setToast] = useState("");
+  const initialPromptSentRef = useRef(false);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -59,6 +77,13 @@ export default function Workbench({ projectId }: { projectId?: string }) {
     busy,
     runPreview,
   };
+
+  useEffect(() => {
+    if (initialPromptSentRef.current) return;
+    if (!initialPrompt?.trim() && initialAttachments.length === 0) return;
+    initialPromptSentRef.current = true;
+    send(initialPrompt ?? "", initialAttachments);
+  }, [initialAttachments, initialPrompt, send]);
 
   return (
     <div className="h-screen flex flex-col bg-bg">

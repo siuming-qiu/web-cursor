@@ -18,6 +18,23 @@ type ComposerAttachment = PendingAttachment & {
   error?: string;
 };
 
+type ComposerProps = {
+  busy: boolean;
+  projectId?: string;
+  onSend: (text: string, attachments?: SendAttachment[]) => void;
+  onStop?: () => void;
+  placeholder?: string;
+  containerClassName?: string;
+  boxClassName?: string;
+  textareaClassName?: string;
+  footerClassName?: string;
+  submitLabel?: string;
+  uploadLabel?: string;
+  showUploadHint?: boolean;
+  resetSignal?: number;
+  submitButtonClassName?: (canSend: boolean, hasUploading: boolean) => string;
+};
+
 function formatBytes(bytes: number) {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
@@ -28,12 +45,17 @@ export default function Composer({
   projectId,
   onSend,
   onStop,
-}: {
-  busy: boolean;
-  projectId?: string;
-  onSend: (text: string, attachments?: SendAttachment[]) => void;
-  onStop: () => void;
-}) {
+  placeholder,
+  containerClassName = "flex-none border-t border-border bg-panel p-[10px_14px]",
+  boxClassName,
+  textareaClassName,
+  footerClassName,
+  submitLabel,
+  uploadLabel,
+  showUploadHint = true,
+  resetSignal,
+  submitButtonClassName,
+}: ComposerProps) {
   const t = useTranslations("Composer");
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -53,9 +75,15 @@ export default function Composer({
     };
   }, []);
 
-  function clearSentAttachments() {
-    setAttachments([]);
-  }
+  useEffect(() => {
+    if (resetSignal === undefined) return;
+    setInput("");
+    setError("");
+    setAttachments((prev) => {
+      prev.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
+      return [];
+    });
+  }, [resetSignal]);
 
   async function uploadAttachment(attachment: ComposerAttachment) {
     setAttachments((prev) =>
@@ -153,7 +181,7 @@ export default function Composer({
     setError("");
     onSend(text, uploaded);
     setInput("");
-    clearSentAttachments();
+    setAttachments([]);
   }
 
   const hasUploading = attachments.some((attachment) => attachment.status === "uploading");
@@ -167,177 +195,183 @@ export default function Composer({
     !hasUploadError &&
     (input.trim().length > 0 || uploadedAttachments.length > 0);
   const aggregateError = hasUploadError ? t("aggregateError") : error;
+  const boxClasses = boxClassName ??
+    ("rounded-[22px] border bg-codebg px-3 py-2 transition-colors " +
+      (dragActive ? "border-accent bg-[#1b1713]" : "border-border focus-within:border-accent"));
+  const sendClassName = submitButtonClassName
+    ? submitButtonClassName(canSend, hasUploading)
+    : "inline-flex h-8 w-8 flex-none items-center justify-center rounded-full bg-accent text-white transition hover:bg-[#d04200] disabled:cursor-not-allowed disabled:bg-[#2b2a26] disabled:text-muted";
 
-  return (
-    <div className="flex-none border-t border-border bg-panel p-[10px_14px]">
-      <div
-        className={
-          "rounded-[22px] border bg-codebg px-3 py-2 transition-colors " +
-          (dragActive ? "border-accent bg-[#1b1713]" : "border-border focus-within:border-accent")
-        }
-        onDragEnter={(e) => {
-          e.preventDefault();
-          if (!busy) setDragActive(true);
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
-        }}
-        onDragLeave={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragActive(false);
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragActive(false);
-          if (busy) return;
-          addDroppedFiles(e.dataTransfer);
-        }}
-      >
-        {attachments.length > 0 && (
-          <div className="mb-2 flex max-w-full flex-wrap gap-2">
-            {attachments.map((attachment) => (
-              <div
-                key={attachment.id}
-                className="relative flex max-w-[230px] min-w-0 items-center gap-2 rounded-xl border border-border bg-panel2/70 p-1.5"
-              >
-                <div className="relative h-10 w-10 flex-none overflow-hidden rounded-md border border-border">
-                  <img
-                    src={attachment.previewUrl}
-                    alt={attachment.name}
-                    className="h-full w-full object-cover"
-                  />
-                  {attachment.status === "uploading" && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/55 text-[10px] font-semibold text-white">
-                      {t("uploading")}
-                    </div>
-                  )}
-                  {attachment.status === "error" && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-red/70 text-[10px] font-semibold text-white">
-                      {t("failed")}
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[11px] leading-4 text-fg">{attachment.name}</div>
-                  <div className="text-[10px] leading-4 text-muted">
-                    {attachment.status === "uploading"
-                      ? t("uploading")
-                      : attachment.status === "error"
-                        ? t("uploadFailed")
-                        : `${formatBytes(attachment.sizeBytes)} · ${t("uploaded")}`}
+  const content = (
+    <div
+      className={boxClasses}
+      onDragEnter={(e) => {
+        e.preventDefault();
+        if (!busy) setDragActive(true);
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragActive(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragActive(false);
+        if (busy) return;
+        addDroppedFiles(e.dataTransfer);
+      }}
+    >
+      {attachments.length > 0 && (
+        <div className="mb-2 flex max-w-full flex-wrap gap-2">
+          {attachments.map((attachment) => (
+            <div
+              key={attachment.id}
+              className="relative flex max-w-[230px] min-w-0 items-center gap-2 rounded-xl border border-border bg-panel2/70 p-1.5"
+            >
+              <div className="relative h-10 w-10 flex-none overflow-hidden rounded-md border border-border">
+                <img
+                  src={attachment.previewUrl}
+                  alt={attachment.name}
+                  className="h-full w-full object-cover"
+                />
+                {attachment.status === "uploading" && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/55 text-[10px] font-semibold text-white">
+                    {t("uploading")}
                   </div>
-                  {attachment.status === "error" && (
-                    <div className="mt-0.5 line-clamp-2 text-[10px] leading-3 text-red">
-                      {attachment.error}
-                    </div>
-                  )}
+                )}
+                {attachment.status === "error" && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-red/70 text-[10px] font-semibold text-white">
+                    {t("failed")}
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[11px] leading-4 text-fg">{attachment.name}</div>
+                <div className="text-[10px] leading-4 text-muted">
+                  {attachment.status === "uploading"
+                    ? t("uploading")
+                    : attachment.status === "error"
+                      ? t("uploadFailed")
+                      : `${formatBytes(attachment.sizeBytes)} · ${t("uploaded")}`}
                 </div>
                 {attachment.status === "error" && (
-                  <button
-                    type="button"
-                    className="inline-flex h-6 w-6 flex-none items-center justify-center rounded-full text-muted transition hover:bg-white/10 hover:text-accent"
-                    onClick={() => uploadAttachment(attachment)}
-                    aria-label={t("retryUpload")}
-                    title={t("retryUpload")}
-                  >
-                    <RefreshCw size={13} strokeWidth={2} />
-                  </button>
+                  <div className="mt-0.5 line-clamp-2 text-[10px] leading-3 text-red">
+                    {attachment.error}
+                  </div>
                 )}
+              </div>
+              {attachment.status === "error" && (
                 <button
                   type="button"
-                  className="inline-flex h-6 w-6 flex-none items-center justify-center rounded-full text-muted transition hover:bg-red/10 hover:text-red"
-                  onClick={() => removeAttachment(attachment.id)}
-                  aria-label={t("removeNamed", { name: attachment.name })}
-                  title={t("removeImage")}
+                  className="inline-flex h-6 w-6 flex-none items-center justify-center rounded-full text-muted transition hover:bg-white/10 hover:text-accent"
+                  onClick={() => uploadAttachment(attachment)}
+                  aria-label={t("retryUpload")}
+                  title={t("retryUpload")}
                 >
-                  <X size={14} strokeWidth={2} />
+                  <RefreshCw size={13} strokeWidth={2} />
                 </button>
-              </div>
-            ))}
-          </div>
-        )}
+              )}
+              <button
+                type="button"
+                className="inline-flex h-6 w-6 flex-none items-center justify-center rounded-full text-muted transition hover:bg-red/10 hover:text-red"
+                onClick={() => removeAttachment(attachment.id)}
+                aria-label={t("removeNamed", { name: attachment.name })}
+                title={t("removeImage")}
+              >
+                <X size={14} strokeWidth={2} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
-        <textarea
-          id="chat-composer"
-          name="chat-composer"
-          className="max-h-36 min-h-[40px] w-full resize-none border-none bg-transparent px-1 pt-1 text-[13.5px] leading-[1.55] text-fg outline-none placeholder:text-muted/70"
-          placeholder={t("placeholder")}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onCompositionStart={() => {
-            isComposingRef.current = true;
-          }}
-          onCompositionEnd={() => {
-            isComposingRef.current = false;
-          }}
-          onPaste={(e) => {
-            if (busy) return;
-            const hasImage = addClipboardImages(e.clipboardData.items);
-            if (hasImage) e.preventDefault();
-          }}
-          onKeyDown={(e) => {
-            const isComposing =
-              e.nativeEvent.isComposing || isComposingRef.current || e.keyCode === 229;
-            if (e.key === "Enter" && !e.shiftKey && !isComposing) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-        />
-        {aggregateError && <div className="mt-1 text-[11px] leading-4 text-red">{aggregateError}</div>}
+      <textarea
+        id="chat-composer"
+        name="chat-composer"
+        className={textareaClassName ?? "max-h-36 min-h-[40px] w-full resize-none border-none bg-transparent px-1 pt-1 text-[13.5px] leading-[1.55] text-fg outline-none placeholder:text-muted/70"}
+        placeholder={placeholder ?? t("placeholder")}
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onCompositionStart={() => {
+          isComposingRef.current = true;
+        }}
+        onCompositionEnd={() => {
+          isComposingRef.current = false;
+        }}
+        onPaste={(e) => {
+          if (busy) return;
+          const hasImage = addClipboardImages(e.clipboardData.items);
+          if (hasImage) e.preventDefault();
+        }}
+        onKeyDown={(e) => {
+          const isComposing =
+            e.nativeEvent.isComposing || isComposingRef.current || e.keyCode === 229;
+          if (e.key === "Enter" && !e.shiftKey && !isComposing) {
+            e.preventDefault();
+            void submit();
+          }
+        }}
+      />
+      {aggregateError && <div className="mt-1 text-[11px] leading-4 text-red">{aggregateError}</div>}
 
-        <div className="mt-1.5 flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                addFiles(e.currentTarget.files);
-                e.currentTarget.value = "";
-              }}
-            />
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-full text-muted transition hover:bg-white/10 hover:text-fg disabled:cursor-not-allowed disabled:opacity-45"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={busy || attachments.length >= MAX_ATTACHMENTS}
-              aria-label={t("uploadScreenshot")}
-              title={t("uploadHelp")}
-            >
-              <Paperclip size={17} strokeWidth={2} />
-            </button>
+      <div className={footerClassName ?? "mt-1.5 flex items-center justify-between gap-3"}>
+        <div className="flex min-w-0 items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              addFiles(e.currentTarget.files);
+              e.currentTarget.value = "";
+            }}
+          />
+          <button
+            type="button"
+            className="inline-flex h-8 flex-none items-center justify-center gap-1.5 rounded-full px-2 text-muted transition hover:bg-white/10 hover:text-fg disabled:cursor-not-allowed disabled:opacity-45"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={busy || attachments.length >= MAX_ATTACHMENTS}
+            aria-label={t("uploadScreenshot")}
+            title={t("uploadHelp")}
+          >
+            <Paperclip size={17} strokeWidth={2} />
+            {uploadLabel ? <span className="text-[12px]">{uploadLabel}</span> : null}
+          </button>
+          {showUploadHint && (
             <span className="truncate text-[11px] text-muted">
               {t("hint", { max: MAX_ATTACHMENTS })}
             </span>
-          </div>
-
-          {busy ? (
-            <button
-              className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-full bg-red/15 text-red transition hover:bg-red/25"
-              onClick={onStop}
-              type="button"
-              aria-label={t("stop")}
-              title={t("stop")}
-            >
-              <Square size={14} fill="currentColor" strokeWidth={2} />
-            </button>
-          ) : (
-            <button
-              className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-full bg-accent text-white transition hover:bg-[#d04200] disabled:cursor-not-allowed disabled:bg-[#2b2a26] disabled:text-muted"
-              onClick={submit}
-              disabled={!canSend}
-              type="button"
-              aria-label={hasUploading ? t("uploading") : t("send")}
-              title={hasUploading ? t("uploading") : t("send")}
-            >
-              {hasUploading ? "…" : <ArrowUp size={17} strokeWidth={2.4} />}
-            </button>
           )}
         </div>
+
+        {busy && onStop ? (
+          <button
+            className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-full bg-red/15 text-red transition hover:bg-red/25"
+            onClick={onStop}
+            type="button"
+            aria-label={t("stop")}
+            title={t("stop")}
+          >
+            <Square size={14} fill="currentColor" strokeWidth={2} />
+          </button>
+        ) : (
+          <button
+            className={sendClassName}
+            onClick={() => void submit()}
+            disabled={!canSend}
+            type="button"
+            aria-label={hasUploading ? t("uploading") : t("send")}
+            title={hasUploading ? t("uploading") : t("send")}
+          >
+            {hasUploading ? "…" : submitLabel ? <><ArrowUp size={15} strokeWidth={2.4} />{submitLabel}</> : <ArrowUp size={17} strokeWidth={2.4} />}
+          </button>
+        )}
       </div>
     </div>
   );
+
+  return containerClassName === "" ? content : <div className={containerClassName}>{content}</div>;
 }
