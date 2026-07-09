@@ -6,6 +6,7 @@
  */
 import { z } from "zod";
 import { ownsProject } from "@/server/guard";
+import { ownerIdFrom } from "@/server/owner";
 import { FileOperationError, FileOperationErrorCode, renameProjectFile } from "@/server/files";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -28,7 +29,7 @@ function fileError(error: unknown) {
 }
 
 export async function POST(req: Request, ctx: Ctx) {
-  const ownerId = req.headers.get("x-owner-id");
+  const ownerId = ownerIdFrom(req);
   if (!ownerId) return new Response("Unauthorized", { status: 401 });
 
   const { id } = await ctx.params;

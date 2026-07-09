@@ -10,6 +10,7 @@ import { and, eq, gt, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/server/db";
 import { figmaConnections, oauthStates } from "@/server/db/schema";
+import { parseOwnerId as parseOwnerIdValue } from "@/server/owner";
 
 const FIGMA_AUTHORIZE_URL = "https://www.figma.com/oauth";
 export const FIGMA_TOKEN_URL = "https://api.figma.com/v1/oauth/token";
@@ -43,8 +44,6 @@ export class FigmaOAuthError extends Error {
   }
 }
 
-const OwnerIdSchema = z.string().uuid();
-
 const FigmaTokenResponseSchema = z.object({
   token_type: z.literal("bearer"),
   access_token: z.string().min(1),
@@ -72,11 +71,11 @@ function getClientConfig(req: Request) {
 }
 
 export function parseOwnerId(value: string | null): string {
-  const parsed = OwnerIdSchema.safeParse(value);
-  if (!parsed.success) {
+  const ownerId = parseOwnerIdValue(value);
+  if (!ownerId) {
     throw new FigmaOAuthError(FigmaOAuthErrorCode.BadOwner, "ownerId must be a UUID.");
   }
-  return parsed.data;
+  return ownerId;
 }
 
 export function parseReturnTo(value: string | null): string {

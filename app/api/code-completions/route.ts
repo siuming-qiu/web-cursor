@@ -6,6 +6,7 @@
  */
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 import { ownsProject } from "@/server/guard";
+import { ownerIdFrom } from "@/server/owner";
 import { listProjectFiles } from "@/server/files";
 import llmClient from "@/server/llm";
 import { CODE_COMPLETION_MODEL } from "@/server/models";
@@ -108,7 +109,7 @@ async function requestCompletion(input: CodeCompletionRequest, files: { path: st
 }
 
 export async function POST(req: Request) {
-  const ownerId = req.headers.get("x-owner-id");
+  const ownerId = ownerIdFrom(req);
   if (!ownerId) return new Response("Unauthorized", { status: 401 });
 
   let body: CodeCompletionRequest;

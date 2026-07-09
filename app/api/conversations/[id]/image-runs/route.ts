@@ -6,13 +6,14 @@
  */
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { ownsConversation } from "@/server/guard";
+import { ownerIdFrom } from "@/server/owner";
 import { db } from "@/server/db";
 import { imageJobs, imageRuns } from "@/server/db/schema";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(req: Request, ctx: Ctx) {
-  const ownerId = req.headers.get("x-owner-id");
+  const ownerId = ownerIdFrom(req);
   if (!ownerId) return new Response("Unauthorized", { status: 401 });
   const { id } = await ctx.params;
   if (!(await ownsConversation(id, ownerId))) {

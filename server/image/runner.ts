@@ -3,12 +3,14 @@
  * [OUTPUT]: updated image_jobs/image_runs/project_assets and closed generate_image tool result messages
  * [POS]: A 域生图 runner —— Vercel Cron/本地定时调用的无状态任务处理器
  * [PROTOCOL]: runner 只查本地库；provider 返回 URL/data URL 必须下载并写入 project_assets 后才暴露
+ *   并发铁律：submit 和 poll 都必须先原子认领（条件 UPDATE ... RETURNING）再调 provider；
+ *   run 的终态跃迁与 tool result 落库同事务提交，重叠 tick 只有一个赢家。
  */
 import "server-only";
 import { and, asc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { db } from "@/server/db";
 import { imageJobs, imageRuns } from "@/server/db/schema";
-import { appendMessage, listMessages } from "@/server/messages";
+import { appendMessage } from "@/server/messages";
 import { pollImageProviderJob, providerError, submitImageProviderJob } from "@/server/image/provider";
 import { resolveProviderInputImages, saveGeneratedProjectAsset } from "@/server/image/storage";
 import {
@@ -112,6 +114,29 @@ async function claimPending(job: ImageJobRow): Promise<ImageJobRow | null> {
   return claimed;
 }
 
+/**
+ * 原子认领一个待轮询 job：以观察到的 lastPolledAt 作为 CAS 前提，
+ * 重叠 tick 里只有一个能把它推进，避免同一 job 被并发 poll → 重复写 blob / project_assets。
+ */
+async function claimPolling(job: ImageJobRow): Promise<ImageJobRow | null> {
+  const now = new Date();
+  const [claimed] = await db
+    .update(imageJobs)
+    .set({ lastPolledAt: now, updatedAt: now })
+    .where(and(
+      eq(imageJobs.id, job.id),
+      eq(imageJobs.status, ImageJobStatus.Running),
+      isNull(imageJobs.deletedAt),
+      job.lastPolledAt === null
+        ? isNull(imageJobs.lastPolledAt)
+        : eq(imageJobs.lastPolledAt, job.lastPolledAt),
+    ))
+    .returning();
+
+  return claimed ?? null;
+}
+
+/** 终态只能从 running 跃迁：已经闭合的 job 不会被后到的 tick 覆盖成另一个结果。 */
 async function failJob(jobId: string, error: ImageJobError) {
   const now = new Date();
   await db
@@ -122,7 +147,11 @@ async function failJob(jobId: string, error: ImageJobError) {
       updatedAt: now,
       completedAt: now,
     })
-    .where(and(eq(imageJobs.id, jobId), isNull(imageJobs.deletedAt)));
+    .where(and(
+      eq(imageJobs.id, jobId),
+      eq(imageJobs.status, ImageJobStatus.Running),
+      isNull(imageJobs.deletedAt),
+    ));
 }
 
 async function succeedJob(ctx: {
@@ -150,7 +179,11 @@ async function succeedJob(ctx: {
       updatedAt: now,
       completedAt: now,
     })
-    .where(and(eq(imageJobs.id, ctx.job.id), isNull(imageJobs.deletedAt)));
+    .where(and(
+      eq(imageJobs.id, ctx.job.id),
+      eq(imageJobs.status, ImageJobStatus.Running),
+      isNull(imageJobs.deletedAt),
+    ));
 }
 
 async function submitJob(run: ImageRunRow, job: ImageJobRow, options: { publicBaseUrl?: string }) {
@@ -216,26 +249,44 @@ async function pollJob(run: ImageRunRow, job: ImageJobRow, options: { publicBase
   await succeedJob({ run, job, bytes: result.bytes, mimeType: result.mimeType, publicBaseUrl: options.publicBaseUrl });
 }
 
-async function toolResultAlreadyAppended(run: ImageRunRow): Promise<boolean> {
-  const rows = await listMessages(run.conversationId);
-  return rows.some((row) => {
-    if (row.role !== "tool") return false;
-    const meta = (row.meta ?? {}) as { toolCallId?: string };
-    return meta.toolCallId === run.toolCallId;
-  });
-}
+/**
+ * 把 run 推向终态，并在同一事务里闭合 generate_image 的 tool result。
+ * 状态 CAS（只从 pending/running 跃迁）保证并发 tick 里只有一个赢家；
+ * 同事务保证"标记完成"和"写 tool 消息"要么都提交、要么都不提交。
+ */
+async function closeRun(run: ImageRunRow, result: GenerateImageRunResult, errors: ImageJobError[]) {
+  const status = errors.length ? ImageRunStatus.Failed : ImageRunStatus.Succeeded;
+  const now = new Date();
 
-async function appendTerminalToolResult(run: ImageRunRow, result: GenerateImageRunResult, status: "ok" | "error") {
-  if (await toolResultAlreadyAppended(run)) return;
-  await appendMessage(run.conversationId, {
-    role: "tool",
-    content: JSON.stringify({
-      status,
-      tool: ToolName.GenerateImage,
-      runId: run.id,
-      result,
-    }),
-    meta: { toolCallId: run.toolCallId },
+  await db.transaction(async (tx) => {
+    const [closed] = await tx
+      .update(imageRuns)
+      .set({
+        status,
+        result,
+        error: errors[0] ?? null,
+        updatedAt: now,
+        completedAt: now,
+      })
+      .where(and(
+        eq(imageRuns.id, run.id),
+        inArray(imageRuns.status, [ImageRunStatus.Pending, ImageRunStatus.Running]),
+        isNull(imageRuns.deletedAt),
+      ))
+      .returning({ id: imageRuns.id });
+
+    if (!closed) return;   // 另一个 tick 已经闭合了这个 run
+
+    await appendMessage(run.conversationId, {
+      role: "tool",
+      content: JSON.stringify({
+        status: errors.length ? "error" : "ok",
+        tool: ToolName.GenerateImage,
+        runId: run.id,
+        result,
+      }),
+      meta: { toolCallId: run.toolCallId },
+    }, tx);
   });
 }
 
@@ -259,10 +310,15 @@ async function refreshRunStatus(runId: string) {
     const nextStatus = jobs.some((job) => job.status === ImageJobStatus.Running)
       ? ImageRunStatus.Running
       : ImageRunStatus.Pending;
+    // 只在 run 仍未闭合时推进：并发 tick 已把它写成终态时不要倒退回 running。
     await db
       .update(imageRuns)
       .set({ status: nextStatus, updatedAt: new Date() })
-      .where(and(eq(imageRuns.id, runId), isNull(imageRuns.deletedAt)));
+      .where(and(
+        eq(imageRuns.id, runId),
+        inArray(imageRuns.status, [ImageRunStatus.Pending, ImageRunStatus.Running]),
+        isNull(imageRuns.deletedAt),
+      ));
     return;
   }
 
@@ -285,21 +341,8 @@ async function refreshRunStatus(runId: string) {
     assets,
     ...(errors.length ? { errors } : {}),
   };
-  const finalStatus = errors.length ? ImageRunStatus.Failed : ImageRunStatus.Succeeded;
-  const now = new Date();
 
-  await db
-    .update(imageRuns)
-    .set({
-      status: finalStatus,
-      result,
-      error: errors[0] ?? null,
-      updatedAt: now,
-      completedAt: now,
-    })
-    .where(and(eq(imageRuns.id, runId), isNull(imageRuns.deletedAt)));
-
-  await appendTerminalToolResult(run, result, errors.length ? "error" : "ok");
+  await closeRun(run, result, errors);
 }
 
 export async function runImageRunnerTick(
@@ -318,9 +361,11 @@ export async function runImageRunnerTick(
   }
 
   for (const item of await pollCandidates(Math.max(0, batchSize - processed))) {
+    const claimed = await claimPolling(item.job);
+    if (!claimed) continue;
     processed++;
     touchedRunIds.add(item.run.id);
-    await pollJob(item.run, item.job, options);
+    await pollJob(item.run, claimed, options);
   }
 
   for (const runId of touchedRunIds) {

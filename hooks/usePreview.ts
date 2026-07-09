@@ -22,7 +22,7 @@ import {
   type WebContainerRunEvent,
 } from "@/lib/webcontainer/types";
 import type { Overlay, Status } from "@/lib/types";
-import { ToolResultType, type ToolResult } from "@/types/tool";
+import { ToolCommand, ToolResultType, type ToolResult } from "@/types/tool";
 
 const EMPTY_OVERLAY: Overlay = { show: false, title: "Runtime Error", message: "", stack: "", showStack: false };
 
@@ -203,12 +203,12 @@ export function usePreview(readProjectFiles: (projectId: string) => Promise<WebC
         if (!isCurrentRun()) return null;
         if (error instanceof WebContainerInstallError) {
           setStatus({ kind: "err", text: t("installFailed") });
-          setOverlay({ show: true, title: "npm install", message: error.rawLog || error.message, stack: "", showStack: false });
+          setOverlay({ show: true, title: ToolCommand.Install, message: error.rawLog || error.message, stack: "", showStack: false });
           setPreviewRunPhase("idle");
           return {
             status: "error",
             type: ToolResultType.InstallError,
-            command: "npm install",
+            command: ToolCommand.Install,
             exitCode: error.exitCode,
             message: error.message,
             rawLog: error.rawLog,

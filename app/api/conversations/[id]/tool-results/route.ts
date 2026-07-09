@@ -7,17 +7,18 @@
 import { z } from "zod";
 import { appendMessage } from "@/server/messages";
 import { ownsConversation } from "@/server/guard";
+import { ownerIdFrom } from "@/server/owner";
 import { ToolResultSchema } from "@/types/toolSchema";
 
 const ToolResultBodySchema = z.object({
   toolCallId: z.string().min(1),
   result: ToolResultSchema,
-});
+}).strict();
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function POST(req: Request, ctx: Ctx) {
-  const ownerId = req.headers.get("x-owner-id");
+  const ownerId = ownerIdFrom(req);
   if (!ownerId) return new Response("Unauthorized", { status: 401 });
 
   const { id } = await ctx.params;

@@ -12,6 +12,17 @@ export const ToolName = {
 
 export type ToolName = typeof ToolName[keyof typeof ToolName];
 
+export const ToolCommandPort = {
+  DevServer: 5173,
+} as const;
+
+export const ToolCommand = {
+  Install: "npm install",
+  DevServer: `npm run dev -- --host 0.0.0.0 --port ${ToolCommandPort.DevServer}`,
+} as const;
+
+export type ToolCommand = typeof ToolCommand[keyof typeof ToolCommand];
+
 export const ToolResultType = {
   ServerReady: "SERVER_READY",
   InstallError: "INSTALL_ERROR",
@@ -25,7 +36,7 @@ export type ToolResult =
   | {
       status: "error";
       type: typeof ToolResultType.InstallError;
-      command: "npm install";
+      command: typeof ToolCommand.Install;
       exitCode: number;
       message: string;
       rawLog: string;
@@ -33,7 +44,7 @@ export type ToolResult =
   | {
       status: "error";
       type: typeof ToolResultType.DevServerError;
-      command: "npm run dev -- --host 0.0.0.0 --port 5173";
+      command: typeof ToolCommand.DevServer;
       exitCode: number | null;
       message: string;
       rawLog: string;

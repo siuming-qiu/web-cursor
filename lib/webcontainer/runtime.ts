@@ -18,9 +18,10 @@ import {
   type WebContainerProjectFile,
   type WebContainerRunEvent,
 } from "@/lib/webcontainer/types";
+import { ToolCommand, ToolCommandPort } from "@/types/tool";
 
-export const WEB_CONTAINER_DEV_SERVER_PORT = 5173;
-export const WEB_CONTAINER_DEV_COMMAND = `npm run dev -- --host 0.0.0.0 --port ${WEB_CONTAINER_DEV_SERVER_PORT}`;
+export const WEB_CONTAINER_DEV_SERVER_PORT = ToolCommandPort.DevServer;
+export const WEB_CONTAINER_DEV_COMMAND = ToolCommand.DevServer;
 
 const SERVER_READY_TIMEOUT_MS = 30000;
 

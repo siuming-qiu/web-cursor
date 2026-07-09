@@ -12,16 +12,16 @@ export const ChatTurnSchema = z.discriminatedUnion("kind", [
     projectId: z.string().uuid().optional(),
     conversationId: z.string().uuid().optional(),
     attachments: z.array(ChatAttachmentRefSchema).max(4).optional(),
-  }),
+  }).strict(),
   z.object({
     kind: z.literal("resume"),
     conversationId: z.string().uuid(),
-  }),
+  }).strict(),
   z.object({
     kind: z.literal("preview_feedback"),
     conversationId: z.string().uuid(),
     result: ToolResultSchema,
-  }),
+  }).strict(),
 ]);
 
 export type ChatTurn = z.infer<typeof ChatTurnSchema>;

@@ -12,6 +12,7 @@ import { db } from "@/server/db";
 import { conversations, projects } from "@/server/db/schema";
 import llmClient, { systemPromptForLocale, tools } from "@/server/llm";
 import { getOwnedConversationProjectId, ownsConversation, ownsProject } from "@/server/guard";
+import { ownerIdFrom } from "@/server/owner";
 import { appendMessage, listMessages } from "@/server/messages";
 import { attachToConversation, AttachmentError } from "@/server/attachments";
 import { closeInterruptedToolCall } from "@/server/toolCalls";
@@ -32,6 +33,11 @@ export const dynamic = "force-dynamic";
 type DbMessage = Awaited<ReturnType<typeof listMessages>>[number];
 
 const MAX_TOOL_ROUNDS = 16;
+
+const TOOL_ROUND_LIMIT_MESSAGE: Record<AppLocale, (max: number) => string> = {
+  zh: (max) => `工具调用超过上限 ${max} 轮，已停止。`,
+  en: (max) => `Stopped: tool calls exceeded the limit of ${max} rounds.`,
+};
 
 type DeepSeekStreamingParams = ChatCompletionCreateParamsStreaming & {
   thinking: { type: "disabled" };
@@ -269,7 +275,7 @@ async function runAgentLoop({
     }
   }
 
-  send({ type: ChatEventType.Error, message: `工具调用超过上限 ${MAX_TOOL_ROUNDS} 轮，已停止。` });
+  send({ type: ChatEventType.Error, message: TOOL_ROUND_LIMIT_MESSAGE[locale](MAX_TOOL_ROUNDS) });
 }
 
 async function closeTailToolCallBeforeModelInput(conversationId: string) {
@@ -389,7 +395,7 @@ function previewFeedbackMessage(result: Extract<ChatTurn, { kind: "preview_feedb
 }
 
 export async function POST(req: Request) {
-  const ownerId = req.headers.get("x-owner-id");
+  const ownerId = ownerIdFrom(req);
   if (!ownerId) return new Response("Unauthorized", { status: 401 });
 
   const locale = requestLocale(req);

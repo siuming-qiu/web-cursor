@@ -6,11 +6,12 @@
  */
 import { ownsProject } from "@/server/guard";
 import { listProjectFileContents, listProjectFiles } from "@/server/files";
+import { ownerIdFrom } from "@/server/owner";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(req: Request, ctx: Ctx) {
-  const ownerId = req.headers.get("x-owner-id");
+  const ownerId = ownerIdFrom(req);
   if (!ownerId) return new Response("Unauthorized", { status: 401 });
 
   const { id } = await ctx.params;

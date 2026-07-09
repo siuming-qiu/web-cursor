@@ -130,6 +130,7 @@ export const projectAssets = pgTable("project_assets", {
   projectIdx: index("idx_project_assets_project").on(t.projectId, t.createdAt),
   ownerIdx: index("idx_project_assets_owner").on(t.ownerId, t.createdAt),
   imageJobIdx: index("idx_project_assets_image_job").on(t.imageJobId),
+  imageJobUnique: uniqueIndex("uq_project_assets_image_job").on(t.imageJobId).where(sql`${t.imageJobId} is not null and ${t.deletedAt} is null`),
 }));
 
 export const chatAttachments = pgTable("chat_attachments", {

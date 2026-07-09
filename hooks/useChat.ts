@@ -421,6 +421,13 @@ export function useChat(deps: UseChatDeps) {
                 summaryKind: summary.summaryKind,
                 summary: summary.summary,
               }));
+              const conversationId = convIdRef.current;
+              if (preview?.status === "error" && conversationId) {
+                deps.setPreviewStatus({ kind: "load", text: t("previewErrorFixing") });
+                setAgentActivity(t("previewErrorFixing"));
+                turn = { kind: "preview_feedback", conversationId, result: preview };
+                continue;
+              }
             } else {
               deps.setPreviewStatus({ kind: "", text: t("waitingUser") });
             }

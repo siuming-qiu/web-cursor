@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { GenerateImageInputImageSource, ImageAspectRatio } from "./image";
-import { ToolResultType } from "./tool";
+import { ToolCommand, ToolResultType } from "./tool";
 
 export const ListFilesArgsSchema = z.object({}).strict();
 
@@ -69,33 +69,33 @@ export const ToolResultSchema = z.discriminatedUnion("type", [
     url: z.string().url(),
     rawLog: z.string().optional(),
     durationMs: z.number().optional(),
-  }),
+  }).strict(),
   z.object({
     status: z.literal("error"),
     type: z.literal(ToolResultType.InstallError),
-    command: z.literal("npm install"),
+    command: z.literal(ToolCommand.Install),
     exitCode: z.number().int(),
     message: z.string(),
     rawLog: z.string(),
-  }),
+  }).strict(),
   z.object({
     status: z.literal("error"),
     type: z.literal(ToolResultType.DevServerError),
-    command: z.literal("npm run dev -- --host 0.0.0.0 --port 5173"),
+    command: z.literal(ToolCommand.DevServer),
     exitCode: z.number().int().nullable(),
     message: z.string(),
     rawLog: z.string(),
-  }),
+  }).strict(),
   z.object({
     status: z.literal("error"),
     type: z.literal(ToolResultType.BrowserRuntimeError),
     message: z.string(),
     stack: z.string().optional(),
     rawLog: z.string().optional(),
-  }),
+  }).strict(),
   z.object({
     status: z.literal("error"),
     type: z.literal(ToolResultType.ToolInterrupted),
     message: z.string(),
-  }),
+  }).strict(),
 ]);

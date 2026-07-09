@@ -6,6 +6,7 @@
  */
 import { z } from "zod";
 import { ownsProject } from "@/server/guard";
+import { ownerIdFrom } from "@/server/owner";
 import {
   deleteProjectFile,
   FileOperationError,
@@ -46,7 +47,7 @@ function fileError(error: unknown) {
 }
 
 async function requireProject(req: Request, ctx: Ctx): Promise<string | Response> {
-  const ownerId = req.headers.get("x-owner-id");
+  const ownerId = ownerIdFrom(req);
   if (!ownerId) return new Response("Unauthorized", { status: 401 });
 
   const { id } = await ctx.params;

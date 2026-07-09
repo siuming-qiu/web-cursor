@@ -6,6 +6,7 @@
  */
 import { listMessages } from "@/server/messages";
 import { ownsConversation } from "@/server/guard";
+import { ownerIdFrom } from "@/server/owner";
 import { listConversationAttachmentViews } from "@/server/attachments";
 import { AttachmentSummarySchema, type AttachmentSummary } from "@/types/attachment";
 
@@ -55,7 +56,7 @@ function enrichRowAttachments(row: MessageRow, views: Map<string, AttachmentSumm
 }
 
 export async function GET(req: Request, ctx: Ctx) {
-  const ownerId = req.headers.get("x-owner-id");
+  const ownerId = ownerIdFrom(req);
   if (!ownerId) return new Response("Unauthorized", { status: 401 });
   const { id } = await ctx.params;
   if (!(await ownsConversation(id, ownerId))) {

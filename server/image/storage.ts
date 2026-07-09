@@ -35,6 +35,43 @@ const MIME_EXTENSION: Record<GeneratedImageMimeTypeValue, string> = {
   [GeneratedImageMimeType.Webp]: "webp",
 };
 
+type StoredGeneratedAsset = {
+  id: string;
+  publicUrl: string;
+  mimeType: GeneratedImageMimeTypeValue;
+  width: number;
+  height: number;
+};
+
+function toGenerateImageJobResult(row: StoredGeneratedAsset): GenerateImageJobResult {
+  return {
+    assetId: row.id,
+    url: row.publicUrl,
+    mimeType: row.mimeType,
+    width: row.width,
+    height: row.height,
+  };
+}
+
+async function findGeneratedAssetByImageJobId(imageJobId: string): Promise<StoredGeneratedAsset | null> {
+  const [row] = await db
+    .select({
+      id: projectAssets.id,
+      publicUrl: projectAssets.publicUrl,
+      mimeType: projectAssets.mimeType,
+      width: projectAssets.width,
+      height: projectAssets.height,
+    })
+    .from(projectAssets)
+    .where(and(
+      eq(projectAssets.imageJobId, imageJobId),
+      isNull(projectAssets.deletedAt),
+    ))
+    .limit(1);
+
+  return row ?? null;
+}
+
 function isGeneratedImageMimeType(value: string): value is GeneratedImageMimeTypeValue {
   return Object.values(GeneratedImageMimeType).includes(value as GeneratedImageMimeTypeValue);
 }
@@ -147,18 +184,34 @@ function imageDimensions(buffer: Buffer, mimeType: GeneratedImageMimeTypeValue):
   }
 
   if (mimeType === GeneratedImageMimeType.Jpeg) {
+    if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) {
+      throw new Error("Downloaded image bytes do not match declared MIME image/jpeg.");
+    }
+
     let offset = 2;
-    while (offset < buffer.length) {
+    while (offset + 3 < buffer.length) {
       if (buffer[offset] !== 0xff) throw new Error("Invalid JPEG marker.");
-      const marker = buffer[offset + 1];
-      const length = buffer.readUInt16BE(offset + 2);
+
+      while (buffer[offset] === 0xff) offset++;
+      const marker = buffer[offset];
+      if (marker === 0xd9 || marker === 0xda) break;
+      if (marker >= 0xd0 && marker <= 0xd7) {
+        offset += 1;
+        continue;
+      }
+
+      if (offset + 2 >= buffer.length) break;
+      const length = buffer.readUInt16BE(offset + 1);
+      if (length < 2 || offset + 1 + length > buffer.length) {
+        throw new Error("Invalid JPEG segment length.");
+      }
       if (marker >= 0xc0 && marker <= 0xc3) {
         return {
-          height: buffer.readUInt16BE(offset + 5),
-          width: buffer.readUInt16BE(offset + 7),
+          height: buffer.readUInt16BE(offset + 4),
+          width: buffer.readUInt16BE(offset + 6),
         };
       }
-      offset += 2 + length;
+      offset += 1 + length;
     }
     throw new Error("JPEG dimensions not found.");
   }
@@ -187,6 +240,9 @@ export async function saveGeneratedProjectAsset(ctx: {
   bytes: Buffer;
   publicBaseUrl?: string;
 }): Promise<GenerateImageJobResult> {
+  const existing = await findGeneratedAssetByImageJobId(ctx.imageJobId);
+  if (existing) return toGenerateImageJobResult(existing);
+
   const dimensions = imageDimensions(ctx.bytes, ctx.mimeType);
   const assetId = crypto.randomUUID();
   const blobPath = `project-assets/${ctx.ownerId}/${ctx.projectId}/${assetId}.${MIME_EXTENSION[ctx.mimeType]}`;
@@ -198,31 +254,31 @@ export async function saveGeneratedProjectAsset(ctx: {
   void blob;
   const assetUrl = new URL(`/api/project-assets/${assetId}`, ctx.publicBaseUrl ?? SITE_URL).toString();
 
-  const [row] = await db.insert(projectAssets).values({
-    id: assetId,
-    ownerId: ctx.ownerId,
-    projectId: ctx.projectId,
-    imageJobId: ctx.imageJobId,
-    source: ImageAssetSource.GeneratedImage,
-    mimeType: ctx.mimeType,
-    blobPath,
-    publicUrl: assetUrl,
-    width: dimensions.width,
-    height: dimensions.height,
-    sizeBytes: ctx.bytes.length,
-  }).returning({
-    id: projectAssets.id,
-    publicUrl: projectAssets.publicUrl,
-    mimeType: projectAssets.mimeType,
-    width: projectAssets.width,
-    height: projectAssets.height,
-  });
+  try {
+    const [row] = await db.insert(projectAssets).values({
+      id: assetId,
+      ownerId: ctx.ownerId,
+      projectId: ctx.projectId,
+      imageJobId: ctx.imageJobId,
+      source: ImageAssetSource.GeneratedImage,
+      mimeType: ctx.mimeType,
+      blobPath,
+      publicUrl: assetUrl,
+      width: dimensions.width,
+      height: dimensions.height,
+      sizeBytes: ctx.bytes.length,
+    }).returning({
+      id: projectAssets.id,
+      publicUrl: projectAssets.publicUrl,
+      mimeType: projectAssets.mimeType,
+      width: projectAssets.width,
+      height: projectAssets.height,
+    });
 
-  return {
-    assetId: row.id,
-    url: row.publicUrl,
-    mimeType: row.mimeType,
-    width: row.width,
-    height: row.height,
-  };
+    return toGenerateImageJobResult(row);
+  } catch (error) {
+    const concurrent = await findGeneratedAssetByImageJobId(ctx.imageJobId);
+    if (concurrent) return toGenerateImageJobResult(concurrent);
+    throw error;
+  }
 }

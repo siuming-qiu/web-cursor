@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: DEEPSEEK_API_KEY 环境变量 + 请求 locale
+ * [OUTPUT]: 配好 baseURL/key 的 OpenAI 兼容 client、按 locale 拼好的 system prompt、工具定义再导出
+ * [POS]: A 域 LLM 客户端与系统提示词单一来源 —— key 只在这里读，B/C 域拿不到
+ * [PROTOCOL]: 改 system prompt 会直接改变 agent 行为契约（项目骨架、工具调用时机、run_preview 验收）；
+ *   改动前先看 CLAUDE.md 与 server/tools/definitions.ts，保证提示词与工具集合一致。
+ */
 import "server-only"; // A 域守卫：持 key，误 import 进客户端组件会在编译期报错
 import OpenAI from "openai";
 import type { AppLocale } from "@/i18n/locales";

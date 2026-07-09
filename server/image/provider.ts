@@ -94,7 +94,27 @@ function decodeDataUrl(dataUrl: string): GeneratedBytes {
   if (bytes.length === 0) {
     throw new ImageProviderError(ImageJobErrorCode.ProviderFailed, "Provider returned empty image bytes.");
   }
-  return { bytes, mimeType };
+  const actualMimeType = sniffGeneratedImageMimeType(bytes);
+  if (!actualMimeType) {
+    throw new ImageProviderError(
+      ImageJobErrorCode.ProviderFailed,
+      `Provider data URL bytes do not match any supported image MIME. Declared MIME: ${mimeType}.`,
+    );
+  }
+  return { bytes, mimeType: actualMimeType };
+}
+
+function sniffGeneratedImageMimeType(bytes: Buffer): GeneratedImageMimeTypeValue | null {
+  if (bytes.length >= 24 && bytes.toString("ascii", 1, 4) === "PNG") {
+    return GeneratedImageMimeType.Png;
+  }
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    return GeneratedImageMimeType.Jpeg;
+  }
+  if (bytes.length >= 16 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP") {
+    return GeneratedImageMimeType.Webp;
+  }
+  return null;
 }
 
 function extractGeminiDataUrl(content: unknown): string {
@@ -219,8 +239,15 @@ async function downloadGeneratedImage(url: string): Promise<GeneratedBytes> {
   if (bytes.length === 0) {
     throw new ImageProviderError(ImageJobErrorCode.ProviderFailed, "Downloaded image is empty.");
   }
+  const actualMimeType = sniffGeneratedImageMimeType(bytes);
+  if (!actualMimeType) {
+    throw new ImageProviderError(
+      ImageJobErrorCode.ProviderFailed,
+      `Downloaded image bytes do not match any supported image MIME. Declared MIME: ${contentType}.`,
+    );
+  }
 
-  return { bytes, mimeType: contentType as GeneratedImageMimeTypeValue };
+  return { bytes, mimeType: actualMimeType };
 }
 
 function extractFalImageUrl(body: unknown): string {

@@ -104,18 +104,33 @@ npm run build
 
 ## 环境变量
 
-项目依赖 `.env.local`。常见变量包括：
+项目依赖 `.env.local`，可从 `.env.example` 复制起步：
 
 ```bash
-DATABASE_URL=
-DATABASE_URL_UNPOOLED=
-OPENAI_API_KEY=
-OPENAI_BASE_URL=
-BLOB_READ_WRITE_TOKEN=
-NEXT_PUBLIC_SITE_URL=
+cp .env.example .env.local
 ```
 
-Figma、图片生成 provider 等能力还会使用各自的 provider 配置。具体以相关服务端模块和部署环境为准。
+跑通基础闭环（对话 → 写文件 → 预览）必须配置：
+
+| 变量 | 说明 |
+|---|---|
+| `DATABASE_URL` | Postgres 连接串（Neon）。`npm run db:push` 也读它 |
+| `DEEPSEEK_API_KEY` | agent loop 与代码补全的 LLM key。baseURL 固定为 `https://api.deepseek.com`，硬编码在 `server/llm.ts`，没有对应环境变量 |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob 读写 token，由 `@vercel/blob` SDK 直接读取 |
+
+按需开启的能力：
+
+| 变量 | 用于 | 必填性 |
+|---|---|---|
+| `YUNWU_API_KEY` | 生图（`generate_image`）与图片附件识别 | 用到才需要 |
+| `YUNWU_IMAGE_MODEL` | 覆盖默认生图模型 | 可选 |
+| `FIGMA_CLIENT_ID` / `FIGMA_CLIENT_SECRET` | Figma OAuth | 用到才需要 |
+| `FIGMA_TOKEN_ENCRYPTION_KEY` | 加密落库的 Figma token | 配了 Figma 就必填 |
+| `FIGMA_REDIRECT_URI` | 覆盖回调地址，默认按请求 origin 推导 | 可选 |
+| `FIGMA_PROVIDER` | 目前只支持 `rest` | 可选 |
+| `CRON_SECRET` / `IMAGE_RUNNER_SECRET` | 保护 `/api/image-runner`。生产未配则该接口一律 401 | 生产必填 |
+| `IMAGE_RUNNER_URL` / `IMAGE_RUNNER_INTERVAL_MS` / `IMAGE_RUNNER_BATCH_SIZE` | 本地 runner 脚本 `scripts/image-runner-dev.mjs` | 可选 |
+| `NEXT_PUBLIC_SITE_URL` | 站点绝对地址（sitemap / robots） | 可选 |
 
 ## 目录导览
 

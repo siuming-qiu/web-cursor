@@ -7,11 +7,12 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "@/server/db";
 import { imageJobs, imageRuns } from "@/server/db/schema";
+import { ownerIdFrom } from "@/server/owner";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(req: Request, ctx: Ctx) {
-  const ownerId = req.headers.get("x-owner-id");
+  const ownerId = ownerIdFrom(req);
   if (!ownerId) return new Response("Unauthorized", { status: 401 });
   const { id } = await ctx.params;
 

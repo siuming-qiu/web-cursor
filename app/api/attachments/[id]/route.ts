@@ -24,6 +24,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     return new Response(file.stream, {
       headers: {
         "Content-Type": file.mimeType,
+        "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, max-age=3600",
       },
     });
