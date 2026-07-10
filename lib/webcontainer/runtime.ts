@@ -1,6 +1,6 @@
 /**
  * [INPUT]: WebContainer project files, run event callback, or global prewarm request
- * [OUTPUT]: dev server URL, install/dev server errors, or warmed WebContainer singleton
+ * [OUTPUT]: dev server URL, install/dev server errors, preview runtime bridge injection, or warmed WebContainer singleton
  * [POS]: B 域 WebContainer runtime 单例 —— boot/mount/install/start 当前预览项目
  * [PROTOCOL]: 只在浏览器客户端调用；WebContainer 实例存在 globalThis，避免重复 boot；预热只 boot，不 mount/install/start。
  */
@@ -9,6 +9,7 @@
 import { WebContainer, type WebContainerProcess } from "@webcontainer/api";
 import { assertWebContainerProjectContract } from "@/lib/webcontainer/contract";
 import { projectFilesToFileSystemTree } from "@/lib/webcontainer/files";
+import { withPreviewRuntimeBridge } from "@/lib/webcontainer/previewRuntimeBridge";
 import {
   WEB_CONTAINER_RUN_EVENT,
   WebContainerBuildError,
@@ -180,7 +181,7 @@ export async function runWebContainerProject({
   onEvent,
 }: RunWebContainerProjectOptions): Promise<RunWebContainerProjectResult> {
   assertWebContainerProjectContract(files);
-  const tree = projectFilesToFileSystemTree(files);
+  const tree = projectFilesToFileSystemTree(withPreviewRuntimeBridge(files));
   const webcontainer = await bootWebContainer(onEvent);
 
   await stopWebContainerProject();

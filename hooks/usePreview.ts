@@ -15,6 +15,13 @@ import {
   toWebContainerUserMessage,
 } from "@/lib/webcontainer/runtime";
 import {
+  PREVIEW_RUNTIME_RESULT_TIMEOUT_MS,
+  PreviewRuntimeMessageType,
+  parsePreviewRuntimeMessage,
+  withPreviewRunId,
+  type PreviewRuntimeMessage,
+} from "@/lib/webcontainer/previewRuntimeBridge";
+import {
   WEB_CONTAINER_RUN_EVENT,
   WebContainerDevServerError,
   WebContainerInstallError,
@@ -43,20 +50,18 @@ function interruptedPreviewResult(message: string): ToolResult {
   return { status: "error", type: ToolResultType.ToolInterrupted, message };
 }
 
-function isBrowserRuntimeError(data: unknown): data is { type: typeof ToolResultType.BrowserRuntimeError; message: string; stack?: string } {
-  return Boolean(
-    data
-      && typeof data === "object"
-      && (data as { type?: unknown }).type === ToolResultType.BrowserRuntimeError
-      && typeof (data as { message?: unknown }).message === "string"
-  );
-}
+type PendingPreviewRuntime = {
+  runId: string;
+  timeoutId: number;
+  resolve: (message: PreviewRuntimeMessage | null) => void;
+};
 
 export function usePreview(readProjectFiles: (projectId: string) => Promise<WebContainerProjectFile[]>) {
   const t = useTranslations("Preview");
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const runIdRef = useRef(0);
   const rawDevLogRef = useRef("");
+  const pendingRuntimeRef = useRef<PendingPreviewRuntime | null>(null);
 
   const [status, setStatus] = useState<Status>({ kind: "", text: t("waitingGeneration") });
   const [overlay, setOverlay] = useState<Overlay>(EMPTY_OVERLAY);
@@ -66,31 +71,63 @@ export function usePreview(readProjectFiles: (projectId: string) => Promise<WebC
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [runLogs, setRunLogs] = useState<string[]>([]);
 
-  useEffect(() => {
-    return () => {
-      void stopWebContainerProject();
-    };
+  const settlePendingRuntime = useCallback((runId: string, message: PreviewRuntimeMessage | null) => {
+    const pending = pendingRuntimeRef.current;
+    if (!pending || pending.runId !== runId) return false;
+    window.clearTimeout(pending.timeoutId);
+    pendingRuntimeRef.current = null;
+    pending.resolve(message);
+    return true;
   }, []);
+
+  const cancelPendingRuntime = useCallback(() => {
+    const pending = pendingRuntimeRef.current;
+    if (!pending) return;
+    window.clearTimeout(pending.timeoutId);
+    pendingRuntimeRef.current = null;
+    pending.resolve(null);
+  }, []);
+
+  const waitForPreviewRuntime = useCallback((runId: string) => {
+    cancelPendingRuntime();
+    return new Promise<PreviewRuntimeMessage | null>((resolve) => {
+      const timeoutId = window.setTimeout(() => {
+        settlePendingRuntime(runId, null);
+      }, PREVIEW_RUNTIME_RESULT_TIMEOUT_MS);
+      pendingRuntimeRef.current = { runId, timeoutId, resolve };
+    });
+  }, [cancelPendingRuntime, settlePendingRuntime]);
+
+  useEffect(() => () => {
+    cancelPendingRuntime();
+    void stopWebContainerProject();
+  }, [cancelPendingRuntime]);
 
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
-      if (iframeRef.current?.contentWindow && event.source !== iframeRef.current.contentWindow) return;
-      if (!isBrowserRuntimeError(event.data)) return;
+      const previewWindow = iframeRef.current?.contentWindow;
+      if (!previewWindow || event.source !== previewWindow) return;
+      const message = parsePreviewRuntimeMessage(event.data);
+      if (!message || message.runId !== String(runIdRef.current)) return;
+
+      settlePendingRuntime(message.runId, message);
+      if (message.type !== PreviewRuntimeMessageType.RuntimeError) return;
       setStatus({ kind: "err", text: t("browserRuntimeError") });
       setOverlay({
         show: true,
         title: "Browser Runtime Error",
-        message: event.data.message,
-        stack: event.data.stack ?? "",
+        message: message.message,
+        stack: message.stack ?? "",
         showStack: false,
       });
     }
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [t]);
+  }, [settlePendingRuntime, t]);
 
   const resetPreview = useCallback((text: string) => {
+    cancelPendingRuntime();
     runIdRef.current += 1;
     setHasResult(false);
     setPreviewActive(false);
@@ -100,7 +137,7 @@ export function usePreview(readProjectFiles: (projectId: string) => Promise<WebC
     setOverlay(EMPTY_OVERLAY);
     setStatus({ kind: "", text });
     setPreviewRunPhase("idle");
-  }, []);
+  }, [cancelPendingRuntime]);
 
   const appendLog = useCallback((text: string) => {
     setRunLogs((logs) => [...logs, text].slice(-120));
@@ -140,8 +177,7 @@ export function usePreview(readProjectFiles: (projectId: string) => Promise<WebC
         break;
       case WEB_CONTAINER_RUN_EVENT.ServerReady:
         setPreviewRunPhase("server-ready");
-        setStatus({ kind: "ok", text: t("serverReady"), meta: `:${event.port}` });
-        setPreviewUrl(event.url);
+        setStatus({ kind: "load", text: t("validatingRuntime"), meta: `:${event.port}` });
         break;
       case WEB_CONTAINER_RUN_EVENT.InstallError:
       case WEB_CONTAINER_RUN_EVENT.DevServerError:
@@ -151,6 +187,7 @@ export function usePreview(readProjectFiles: (projectId: string) => Promise<WebC
 
   const runPreview = useCallback(
     async (projectId: string): Promise<ToolResult | null> => {
+      cancelPendingRuntime();
       const runId = ++runIdRef.current;
       const isCurrentRun = () => runId === runIdRef.current;
       let projectFiles: WebContainerProjectFile[];
@@ -185,6 +222,31 @@ export function usePreview(readProjectFiles: (projectId: string) => Promise<WebC
           onEvent: handleRunEvent,
         });
         if (!isCurrentRun()) return null;
+
+        const runtimeMessagePromise = waitForPreviewRuntime(String(runId));
+        setPreviewUrl(withPreviewRunId(result.url, runId));
+        const runtimeMessage = await runtimeMessagePromise;
+        if (!isCurrentRun()) return null;
+
+        if (!runtimeMessage) {
+          const message = t("runtimeFeedbackTimeout");
+          setStatus({ kind: "err", text: message });
+          setOverlay({ show: true, title: "Preview Runtime", message, stack: "", showStack: false });
+          setPreviewRunPhase("idle");
+          return interruptedPreviewResult(message);
+        }
+
+        if (runtimeMessage.type === PreviewRuntimeMessageType.RuntimeError) {
+          setPreviewRunPhase("idle");
+          return {
+            status: "error",
+            type: ToolResultType.BrowserRuntimeError,
+            message: runtimeMessage.message,
+            stack: runtimeMessage.stack,
+            rawLog: result.rawLog,
+          };
+        }
+
         const dur = Math.round(performance.now() - t0);
         setStatus({ kind: "ok", text: t("serverReady"), meta: `:${result.port} · ${dur}ms` });
         setOverlay((o) => ({ ...o, show: false }));
@@ -200,6 +262,7 @@ export function usePreview(readProjectFiles: (projectId: string) => Promise<WebC
           durationMs: dur,
         };
       } catch (error) {
+        cancelPendingRuntime();
         if (!isCurrentRun()) return null;
         if (error instanceof WebContainerInstallError) {
           setStatus({ kind: "err", text: t("installFailed") });
@@ -241,7 +304,7 @@ export function usePreview(readProjectFiles: (projectId: string) => Promise<WebC
         };
       }
     },
-    [handleRunEvent, readProjectFiles, t]
+    [cancelPendingRuntime, handleRunEvent, readProjectFiles, t, waitForPreviewRuntime]
   );
 
   return {

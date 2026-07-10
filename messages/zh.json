@@ -224,6 +224,8 @@
     "installingDependencies": "执行 npm install…",
     "startingDevServer": "执行 npm run dev…",
     "serverReady": "dev server 已就绪",
+    "validatingRuntime": "正在验证浏览器运行结果…",
+    "runtimeFeedbackTimeout": "等待浏览器运行结果超时",
     "installFailed": "依赖安装失败",
     "devServerFailed": "dev server 启动失败",
     "browserRuntimeError": "浏览器运行时报错",

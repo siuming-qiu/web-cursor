@@ -224,6 +224,8 @@
     "installingDependencies": "Running npm install…",
     "startingDevServer": "Running npm run dev…",
     "serverReady": "dev server is ready",
+    "validatingRuntime": "Validating browser runtime…",
+    "runtimeFeedbackTimeout": "Timed out waiting for the browser runtime result",
     "installFailed": "Dependency install failed",
     "devServerFailed": "dev server failed",
     "browserRuntimeError": "Browser runtime error",
