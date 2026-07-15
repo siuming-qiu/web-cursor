@@ -1,5 +1,6 @@
 export const ToolName = {
   ListFiles: "list_files",
+  SearchText: "search_text",
   ReadFile: "read_file",
   WriteFile: "write_file",
   DeleteFile: "delete_file",
@@ -11,6 +12,20 @@ export const ToolName = {
 } as const;
 
 export type ToolName = typeof ToolName[keyof typeof ToolName];
+
+export const SearchTextLimits = {
+  QueryCodePoints: 200,
+  Matches: 50,
+  SnippetCodePoints: 240,
+} as const;
+
+export function countUnicodeCodePoints(value: string): number {
+  return Array.from(value).length;
+}
+
+export function containsUnicodeLineTerminator(value: string): boolean {
+  return /[\r\n\u2028\u2029]/u.test(value);
+}
 
 export const ToolCommandPort = {
   DevServer: 5173,

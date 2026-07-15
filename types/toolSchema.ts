@@ -1,8 +1,26 @@
 import { z } from "zod";
 import { GenerateImageInputImageSource, ImageAspectRatio } from "./image";
-import { ToolCommand, ToolResultType } from "./tool";
+import {
+  containsUnicodeLineTerminator,
+  countUnicodeCodePoints,
+  SearchTextLimits,
+  ToolCommand,
+  ToolResultType,
+} from "./tool";
 
 export const ListFilesArgsSchema = z.object({}).strict();
+
+export const SearchTextArgsSchema = z.object({
+  query: z.string()
+    .min(1)
+    .refine(
+      (value) => countUnicodeCodePoints(value) <= SearchTextLimits.QueryCodePoints,
+      { message: `query must contain at most ${SearchTextLimits.QueryCodePoints} Unicode code points` },
+    )
+    .refine((value) => value.trim().length > 0, { message: "query must contain non-whitespace text" })
+    .refine((value) => !containsUnicodeLineTerminator(value), { message: "query must be single-line" })
+    .refine((value) => !value.includes("\0"), { message: "query must not contain NUL" }),
+}).strict();
 
 export const ReadFileArgsSchema = z.object({
   path: z.string().min(1),

@@ -5,7 +5,7 @@
  * [PROTOCOL]: 新增/修改工具先改这里，再同步 types/toolSchema.ts 和 executor.ts
  */
 import "server-only";
-import { ToolName } from "@/types/tool";
+import { SearchTextLimits, ToolName } from "@/types/tool";
 
 export const toolDefinitions = [
   {
@@ -15,6 +15,25 @@ export const toolDefinitions = [
       type: "object",
       properties: {},
       required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: ToolName.SearchText,
+    description:
+      `在当前项目已保存的文件内容中执行大小写敏感的单行字面量搜索，不支持正则。返回最多 ${SearchTextLimits.Matches} 个 occurrence 的 1-based 行列和截断 snippet；truncated=true 表示还有更多结果。用于定位候选文件，修改前仍必须调用 read_file。`,
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          minLength: 1,
+          maxLength: SearchTextLimits.QueryCodePoints,
+          pattern: "^[^\\r\\n\\u2028\\u2029\\u0000]*\\S[^\\r\\n\\u2028\\u2029\\u0000]*$",
+          description: `要原样匹配的单行文本，最长 ${SearchTextLimits.QueryCodePoints} 个 Unicode code point，例如组件名、import 路径或错误消息片段。不会被当作正则表达式。`,
+        },
+      },
+      required: ["query"],
       additionalProperties: false,
     },
   },

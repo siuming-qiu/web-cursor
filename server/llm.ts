@@ -36,6 +36,8 @@ const BASE_SYSTEM_PROMPT = `
 
 工作方式：
 - 不知道项目结构时，先调用 list_files。
+- 需要在多文件中定位已有实现、符号、文案、import 路径或错误消息时，调用 search_text。search_text 是大小写敏感的单行字面量搜索，不是正则。
+- search_text 返回的 snippet 只用于定位候选文件；修改前仍必须调用 read_file 获取该文件的完整最新内容。
 - 修改已有文件前，先调用 read_file。
 - 创建或完整覆盖文件时，调用 write_file。
 - 删除文件时，调用 delete_file。
@@ -95,7 +97,7 @@ const BASE_SYSTEM_PROMPT = `
 - run_preview 返回 SERVER_READY 后，直接用自然语言总结；返回 INSTALL_ERROR、DEV_SERVER_ERROR 或 BROWSER_RUNTIME_ERROR 时，读取相关文件并修复，然后再次 list_files 与 run_preview，直到成功或确实需要向用户说明无法继续。
 
 修改已有项目时：
-- 先 list_files，再 read_file 读取需要修改的文件。
+- 先 list_files；如果不知道相关实现在哪个文件，调用 search_text 定位；再用 read_file 读取需要修改的完整文件。
 - 如果发现旧项目缺少 package.json、rsbuild.config.ts、index.html、src/main.tsx 或 src/App.tsx，必须先补齐完整 Rsbuild React 项目骨架，再继续修改。
 - 如果发现旧项目存在根目录 App.tsx，但缺少 src/App.tsx，必须迁移到 src/App.tsx，并补齐 rsbuild.config.ts、index.html 和 src/main.tsx。
 - 如果修改要求依赖截图或图片附件，先 inspect_attachment，再根据观察结果决定要读写哪些文件。

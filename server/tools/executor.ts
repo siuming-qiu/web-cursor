@@ -17,6 +17,8 @@ import {
   listProjectFiles,
   readProjectFile,
   renameProjectFile,
+  searchProjectFiles,
+  type ProjectTextSearchResult,
   writeProjectFile,
 } from "@/server/files";
 import {
@@ -28,6 +30,7 @@ import {
   ReadFileArgsSchema,
   RenameFileArgsSchema,
   RunPreviewArgsSchema,
+  SearchTextArgsSchema,
   WriteFileArgsSchema,
 } from "@/types/toolSchema";
 import { ToolName, type ToolCallMeta, type ToolName as ToolNameType } from "@/types/tool";
@@ -41,6 +44,7 @@ export type ToolExecutionContext = {
 export const ToolExecutionErrorCode = {
   BadArgs: "BAD_ARGS",
   BadPath: FileOperationErrorCode.BadPath,
+  BadSearchQuery: FileOperationErrorCode.BadSearchQuery,
   NotFound: FileOperationErrorCode.NotFound,
   Conflict: FileOperationErrorCode.Conflict,
   Unsupported: AttachmentErrorCode.Unsupported,
@@ -62,6 +66,7 @@ export type ToolExecutionErrorCode =
 
 export type ToolExecutionResult =
   | { status: "ok"; tool: typeof ToolName.ListFiles; files: { path: string; updatedAt?: string }[] }
+  | ({ status: "ok"; tool: typeof ToolName.SearchText; query: string } & ProjectTextSearchResult)
   | { status: "ok"; tool: typeof ToolName.ReadFile; path: string; content: string; updatedAt?: string }
   | { status: "ok"; tool: typeof ToolName.WriteFile; path: string; updatedAt?: string }
   | { status: "ok"; tool: typeof ToolName.DeleteFile; path: string }
@@ -109,6 +114,11 @@ export async function executeToolCall(
         ListFilesArgsSchema.parse(parseArgs(toolCall.arguments));
         const files = await listProjectFiles(ctx.projectId);
         return { status: "ok", tool, files };
+      }
+      case ToolName.SearchText: {
+        const args = SearchTextArgsSchema.parse(parseArgs(toolCall.arguments));
+        const result = await searchProjectFiles(ctx.projectId, args.query);
+        return { status: "ok", tool, query: args.query, ...result };
       }
       case ToolName.ReadFile: {
         const args = ReadFileArgsSchema.parse(parseArgs(toolCall.arguments));

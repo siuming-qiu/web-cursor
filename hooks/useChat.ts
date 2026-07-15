@@ -300,7 +300,11 @@ export function useChat(deps: UseChatDeps) {
             } else if (ev.name === ToolName.WriteFile || ev.name === ToolName.DeleteFile || ev.name === ToolName.RenameFile) {
               deps.setPreviewStatus({ kind: "load", text: t("writingFiles") });
               setAgentActivity(t("writingFiles"));
-            } else if (ev.name === ToolName.ListFiles || ev.name === ToolName.ReadFile) {
+            } else if (
+              ev.name === ToolName.ListFiles
+              || ev.name === ToolName.SearchText
+              || ev.name === ToolName.ReadFile
+            ) {
               deps.setPreviewStatus({ kind: "load", text: t("readingFiles") });
               setAgentActivity(t("readingFiles"));
             }
