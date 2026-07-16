@@ -306,6 +306,8 @@ D. 后端执行沙箱       条件性能力；用于 headless typecheck/build/pr
 
 **目标**：单 Agent 在大型任务上出现可量化瓶颈后，再引入并行协作。
 
+完整目标架构、上下文共享、Agent 通信、可观察 UI 与写入隔离方案见 [`multi-agent-architecture.md`](./multi-agent-architecture.md)。
+
 前置条件：
 
 - 单 Agent 的 run、revision、ChangeSet、trace 和 eval 已稳定。

@@ -194,4 +194,5 @@ server/
 - [Figma 设计读取](./docs/figma-design-import.md) — 当前 OAuth 与节点级读取设计
 - [静态 ZIP 导出](./docs/export-zip.md) — 规划中的导出设计
 - [后端沙箱](./docs/backend-sandbox.md) — 规划中的隔离验证设计
+- [多 Agent 架构](./docs/multi-agent-architecture.md) — 自治委派、上下文共享、通信协调、进度 UI 与隔离变更设计
 - [需求基线](./REQUIREMENTS.md) — 历史产品基线；部分内容早于当前 WebContainer 与国际化实现

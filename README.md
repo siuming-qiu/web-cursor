@@ -194,4 +194,5 @@ server/
 - [Figma design inspection](./docs/figma-design-import.md) — current OAuth and node-level inspection design
 - [Static ZIP export](./docs/export-zip.md) — planned export design
 - [Backend sandbox](./docs/backend-sandbox.md) — planned isolated validation design
+- [Multi-agent architecture](./docs/multi-agent-architecture.md) — autonomous delegation, context sharing, coordination, progress UI, and isolated changes
 - [Requirements baseline](./REQUIREMENTS.md) — historical product baseline; some sections predate the current WebContainer and i18n implementation
