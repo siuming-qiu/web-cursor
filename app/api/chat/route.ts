@@ -63,7 +63,7 @@ function assistantMessages(rows: DbMessage[], locale: AppLocale) {
   return [{ role: "system" as const, content: systemPromptForLocale(locale) }, ...toLLMMessages(rows)];
 }
 
-async function requestAssistant(rows: DbMessage[], locale: AppLocale) {
+async function requestAssistant(rows: DbMessage[], locale: AppLocale, signal: AbortSignal) {
   const params: DeepSeekStreamingParams = {
     messages: assistantMessages(rows, locale),
     model: AGENT_MODEL,
@@ -72,15 +72,16 @@ async function requestAssistant(rows: DbMessage[], locale: AppLocale) {
     stream: true,
     thinking: { type: "disabled" },
   };
-  return llmClient.chat.completions.create(params);
+  return llmClient.chat.completions.create(params, { signal });
 }
 
 async function collectAssistantTurn(
   rows: DbMessage[],
   locale: AppLocale,
   send: (event: ChatEvent) => void,
+  signal: AbortSignal,
 ): Promise<{ text: string; toolCalls: ToolCallMeta[] }> {
-  const stream = await requestAssistant(rows, locale);
+  const stream = await requestAssistant(rows, locale, signal);
   const toolCalls = new Map<number, ToolCallMeta>();
   const writeFileStreams = new Map<number, WriteFileStreamState>();
   let text = "";
@@ -137,17 +138,7 @@ async function collectAssistantTurn(
   };
 }
 
-const FILE_MUTATION_TOOLS = [
-  ToolName.WriteFile,
-  ToolName.DeleteFile,
-  ToolName.RenameFile,
-] as const;
-
 const CLIENT_EXECUTION_TOOLS = [ToolName.RunPreview] as const;
-
-function toolChangesFiles(name: string) {
-  return FILE_MUTATION_TOOLS.includes(name as (typeof FILE_MUTATION_TOOLS)[number]);
-}
 
 function toolRunsOnClient(name: string) {
   return CLIENT_EXECUTION_TOOLS.includes(name as (typeof CLIENT_EXECUTION_TOOLS)[number]);
@@ -183,6 +174,7 @@ async function runAgentLoop({
   userMessage,
   locale,
   send,
+  signal,
 }: {
   ownerId: string;
   conversationId: string;
@@ -191,6 +183,7 @@ async function runAgentLoop({
   userMessage?: string;
   locale: AppLocale;
   send: (event: ChatEvent) => void;
+  signal: AbortSignal;
 }) {
   if (created) send({ type: ChatEventType.Init, conversationId, projectId });
   if (userMessage) {
@@ -199,16 +192,20 @@ async function runAgentLoop({
         conversationId,
         projectId,
         userMessage,
+        signal,
       });
       if (titleUpdate) send({ type: ChatEventType.Title, conversationId, ...titleUpdate });
     } catch (titleError) {
+      if (signal.aborted) throw titleError;
       console.warn("Failed to generate chat title", titleError);
     }
   }
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    signal.throwIfAborted();
     const rows = await listMessages(conversationId);
-    const assistant = await collectAssistantTurn(rows, locale, send);
+    const assistant = await collectAssistantTurn(rows, locale, send, signal);
+    signal.throwIfAborted();
 
     if (assistant.toolCalls.length === 0) {
       if (assistant.text) {
@@ -237,6 +234,7 @@ async function runAgentLoop({
     };
 
     for (const toolCall of assistant.toolCalls) {
+      signal.throwIfAborted();
       if (toolRunsOnClient(toolCall.name)) {
         send({
           type: ChatEventType.ToolsCall,
@@ -268,9 +266,8 @@ async function runAgentLoop({
 
       send({ type: ChatEventType.ToolResult, name: toolCall.name, status: result.status });
 
-      if (toolChangesFiles(toolCall.name)) {
-        send(fileChangedEvent(result) ?? { type: ChatEventType.FilesChanged });
-      }
+      const changedEvent = fileChangedEvent(result);
+      if (changedEvent) send(changedEvent);
 
     }
   }
@@ -290,22 +287,37 @@ function streamAgent(args: {
   created: boolean;
   userMessage?: string;
   locale: AppLocale;
-}) {
+}, requestSignal: AbortSignal) {
   const encoder = new TextEncoder();
+  const abortController = new AbortController();
+  const abort = () => abortController.abort(requestSignal.reason);
+  if (requestSignal.aborted) abort();
+  else requestSignal.addEventListener("abort", abort, { once: true });
 
   return sseResponse(new ReadableStream({
     async start(controller) {
       const send = (event: ChatEvent) => {
+        if (abortController.signal.aborted) return;
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       };
 
       try {
-        await runAgentLoop({ ...args, send });
+        await runAgentLoop({ ...args, send, signal: abortController.signal });
       } catch (error) {
-        send({ type: ChatEventType.Error, message: error instanceof Error ? error.message : String(error) });
+        if (!abortController.signal.aborted) {
+          send({ type: ChatEventType.Error, message: error instanceof Error ? error.message : String(error) });
+        }
       } finally {
-        controller.close();
+        requestSignal.removeEventListener("abort", abort);
+        try {
+          controller.close();
+        } catch {
+          // The client may already have cancelled the response stream.
+        }
       }
+    },
+    cancel() {
+      abortController.abort();
     },
   }));
 }
@@ -412,7 +424,7 @@ export async function POST(req: Request) {
     const projectId = await getOwnedConversationProjectId(body.conversationId, ownerId);
     if (!projectId) return new Response("Not Found", { status: 404 });
     await closeTailToolCallBeforeModelInput(body.conversationId);
-    return streamAgent({ conversationId: body.conversationId, projectId, ownerId, created: false, locale });
+    return streamAgent({ conversationId: body.conversationId, projectId, ownerId, created: false, locale }, req.signal);
   }
 
   if (body.kind === "preview_feedback") {
@@ -426,7 +438,7 @@ export async function POST(req: Request) {
       meta: { previewResult: body.result },
     });
 
-    return streamAgent({ conversationId: body.conversationId, projectId, ownerId, created: false, locale });
+    return streamAgent({ conversationId: body.conversationId, projectId, ownerId, created: false, locale }, req.signal);
   }
 
   let { conversationId, projectId } = body;
@@ -490,5 +502,5 @@ export async function POST(req: Request) {
     });
   }
 
-  return streamAgent({ conversationId, projectId, ownerId, created, userMessage: body.message, locale });
+  return streamAgent({ conversationId, projectId, ownerId, created, userMessage: body.message, locale }, req.signal);
 }

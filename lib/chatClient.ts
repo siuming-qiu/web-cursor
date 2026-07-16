@@ -11,12 +11,17 @@ import { localeHeaderName } from "@/i18n/locales";
 import type { ChatEvent, ChatTurn } from "@/types/chat";
 import type { ToolResult } from "@/types/tool";
 
-/** 调后端 /api/chat，逐条 yield SSE 事件。自带 x-owner-id；流关闭即结束。 */
-export async function* streamChat(turn: ChatTurn, locale: string): AsyncIterable<ChatEvent> {
+/** 调后端 /api/chat，逐条 yield SSE 事件。自带 x-owner-id；signal 中止当前后端流。 */
+export async function* streamChat(
+  turn: ChatTurn,
+  locale: string,
+  signal: AbortSignal,
+): AsyncIterable<ChatEvent> {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-owner-id": getOwnerId(), [localeHeaderName]: locale },
     body: JSON.stringify(turn),
+    signal,
   });
 
   if (!res.ok || !res.body) {
@@ -51,11 +56,17 @@ export async function* streamChat(turn: ChatTurn, locale: string): AsyncIterable
 }
 
 /** Close one pending model tool call. This records execution result only; it never calls the LLM. */
-export async function postToolResult(conversationId: string, toolCallId: string, result: ToolResult): Promise<void> {
+export async function postToolResult(
+  conversationId: string,
+  toolCallId: string,
+  result: ToolResult,
+  signal: AbortSignal,
+): Promise<void> {
   const res = await fetch(`/api/conversations/${conversationId}/tool-results`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-owner-id": getOwnerId() },
     body: JSON.stringify({ toolCallId, result }),
+    signal,
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");

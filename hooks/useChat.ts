@@ -104,7 +104,7 @@ function restoredAttachments(meta: unknown) {
 export function useChat(deps: UseChatDeps) {
   const t = useTranslations("Agent");
   const locale = useLocale();
-  const abortRef = useRef({ aborted: false });
+  const activeRequestRef = useRef<AbortController | null>(null);
   const curAiIdRef = useRef<string>("");
   const lastPromptRef = useRef<string>("");
   const lastAttachmentsRef = useRef<SendAttachment[]>([]);
@@ -264,7 +264,12 @@ export function useChat(deps: UseChatDeps) {
   );
 
   const runLoop = useCallback(
-    async (firstMessage: string, attachments: SendAttachment[] = [], initialTurn?: ChatTurn) => {
+    async (
+      firstMessage: string,
+      signal: AbortSignal,
+      attachments: SendAttachment[] = [],
+      initialTurn?: ChatTurn,
+    ) => {
       let turn: ChatTurn = initialTurn ?? {
         kind: "user",
         message: firstMessage,
@@ -283,8 +288,8 @@ export function useChat(deps: UseChatDeps) {
         let filesChangedProjectId: string | null = null;
         let previewToolCallId: string | null = null;
 
-        for await (const ev of streamChat(currentTurn, locale)) {
-          if (abortRef.current.aborted) return { filesChanged, previewToolCallId, aborted: true };
+        for await (const ev of streamChat(currentTurn, locale, signal)) {
+          if (signal.aborted) return { filesChanged, previewToolCallId, aborted: true };
 
           if (ev.type === ChatEventType.Init) {
             projectIdRef.current = ev.projectId;
@@ -411,7 +416,7 @@ export function useChat(deps: UseChatDeps) {
       try {
         for (let resumeCount = 0; resumeCount < MAX_CLIENT_TOOL_RESUMES; resumeCount++) {
           const result = await consumeTurn(turn);
-          if (result.aborted) return;
+          if (result.aborted || signal.aborted) return;
 
           if (!result.previewToolCallId) {
             collapseFileWriteStreams();
@@ -419,6 +424,7 @@ export function useChat(deps: UseChatDeps) {
               const preview = result.shouldRunPreviewForFilesChanged && result.filesChangedProjectId
                 ? await deps.runPreview(result.filesChangedProjectId)
                 : null;
+              if (signal.aborted) return;
               const summary = previewSummary(preview, Boolean(result.shouldRunPreviewForFilesChanged), t);
               updateAi((m) => ({
                 ...m,
@@ -452,11 +458,14 @@ export function useChat(deps: UseChatDeps) {
           }
 
           const preview = await deps.runPreview(projectId);
+          if (signal.aborted) return;
           await postToolResult(
             conversationId,
             result.previewToolCallId,
-            preview ?? interruptedPreviewResult(t("previewNoResult"))
+            preview ?? interruptedPreviewResult(t("previewNoResult")),
+            signal,
           );
+          if (signal.aborted) return;
 
           const previewPassed = previewSucceeded(preview);
           deps.setPreviewStatus({
@@ -469,6 +478,7 @@ export function useChat(deps: UseChatDeps) {
 
         throw new Error(t("resumeLimit", { max: MAX_CLIENT_TOOL_RESUMES }));
       } catch (error) {
+        if (signal.aborted) return;
         setWriting(false);
         deps.setPreviewStatus({ kind: "err", text: t("requestFailed"), meta: "" });
         deps.onError(error);
@@ -512,15 +522,19 @@ export function useChat(deps: UseChatDeps) {
       ]);
       setBusy(true);
       useConversationStore.getState().startTurn(aiId);
-      abortRef.current = { aborted: false };
+      const controller = new AbortController();
+      activeRequestRef.current = controller;
 
-      runLoop(messageText, attachments).catch((err) => {
+      runLoop(messageText, controller.signal, attachments).catch((err) => {
+        if (controller.signal.aborted) return;
         setBusy(false);
         setWriting(false);
         finishAgentTurn();
         deps.setPreviewStatus({ kind: "err", text: t("internalError"), meta: "" });
         deps.onError(err);
         updateAi((m) => ({ ...m, summaryKind: "fail", summary: t("backendFailed") }));
+      }).finally(() => {
+        if (activeRequestRef.current === controller) activeRequestRef.current = null;
       });
     },
     [busy, deps, runLoop, t, updateAi]
@@ -537,20 +551,25 @@ export function useChat(deps: UseChatDeps) {
     setBusy(true);
     setWriting(true);
     useConversationStore.getState().startTurn(aiId);
-    abortRef.current = { aborted: false };
+    const controller = new AbortController();
+    activeRequestRef.current = controller;
 
-    runLoop("", [], { kind: "resume", conversationId }).catch((err) => {
+    runLoop("", controller.signal, [], { kind: "resume", conversationId }).catch((err) => {
+      if (controller.signal.aborted) return;
       setBusy(false);
       setWriting(false);
       finishAgentTurn();
       deps.setPreviewStatus({ kind: "err", text: t("internalError"), meta: "" });
       deps.onError(err);
       updateAi((m) => ({ ...m, summaryKind: "fail", summary: t("backendFailed") }));
+    }).finally(() => {
+      if (activeRequestRef.current === controller) activeRequestRef.current = null;
     });
   }, [busy, deps, runLoop, t, updateAi]);
 
   const stop = useCallback(() => {
-    abortRef.current.aborted = true;
+    activeRequestRef.current?.abort();
+    activeRequestRef.current = null;
     setBusy(false);
     setWriting(false);
     useConversationStore.getState().stopTurn();

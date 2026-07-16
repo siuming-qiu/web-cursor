@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 用户首轮需求文本
+ * [INPUT]: 用户首轮需求文本 + 当前 agent 请求取消信号
  * [OUTPUT]: 按需更新 projects/conversations.title
  * [POS]: A 域标题生成 —— 新会话先用用户首句做 fallback，再用 LLM refine
  * [PROTOCOL]: 只更新默认标题或当前首句 fallback 标题；不覆盖用户/历史明确标题。
@@ -61,7 +61,7 @@ function cleanGeneratedTitle(input: string) {
   return title;
 }
 
-async function generateUserMessageTitle(userMessage: string) {
+async function generateUserMessageTitle(userMessage: string, signal: AbortSignal) {
   const userContext = normalizeContext(userMessage);
   if (!userContext) return "";
 
@@ -90,7 +90,7 @@ async function generateUserMessageTitle(userMessage: string) {
     ],
   };
 
-  const response = await llmClient.chat.completions.create(params);
+  const response = await llmClient.chat.completions.create(params, { signal });
 
   return cleanGeneratedTitle(response.choices[0]?.message?.content ?? "");
 }
@@ -104,6 +104,7 @@ export async function updateGeneratedTitlesFromUserMessage(params: {
   conversationId: string;
   projectId?: string;
   userMessage: string;
+  signal: AbortSignal;
 }) {
   const [conversation] = await db
     .select({ title: conversations.title, projectId: conversations.projectId })
@@ -125,7 +126,8 @@ export async function updateGeneratedTitlesFromUserMessage(params: {
   const shouldUpdateProject = project ? canRefineTitle(project.title, fallbackTitle) : false;
   if (!shouldUpdateConversation && !shouldUpdateProject) return null;
 
-  const title = await generateUserMessageTitle(params.userMessage);
+  const title = await generateUserMessageTitle(params.userMessage, params.signal);
+  params.signal.throwIfAborted();
   if (!title) return null;
   if (title === fallbackTitle) return null;
 
