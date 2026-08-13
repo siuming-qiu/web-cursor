@@ -19,7 +19,7 @@ export default function ChatSidebar({
   onStop,
 }: ChatSidebarProps) {
   return (
-    <div className="h-full w-[340px] flex-none border-r border-border bg-panel">
+    <div className="h-full w-[340px] flex-none border-l border-border bg-panel">
       <ChatPanel
         messages={messages}
         projectId={projectId}

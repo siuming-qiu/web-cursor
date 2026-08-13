@@ -1,5 +1,5 @@
 /**
- * [INPUT]: BrowserGitProjectRepository actions + current repository revision
+ * [INPUT]: BrowserGitProjectRepository actions + current repository revision + sidebar collapse action
  * [OUTPUT]: status/stage/unstage/commit/log UI; Database projects get an explicit migration entry
  * [POS]: B 域 Source Control 状态 owner —— UI 状态与 Git external state 的边界
  * [PROTOCOL]: author/message are explicit user input; no inferred identity and no automatic commit.
@@ -7,7 +7,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Check, GitBranch, History, Minus, Plus, RefreshCw } from "lucide-react";
+import { Check, ChevronLeft, GitBranch, History, Minus, Plus, RefreshCw } from "lucide-react";
 import type {
   GitCommitInput,
   GitLogResult,
@@ -67,9 +67,11 @@ function ChangeRow({
 export default function SourceControlPanel({
   model,
   onMigrate,
+  onCollapse,
 }: {
   model: SourceControlModel;
   onMigrate(): void;
+  onCollapse(): void;
 }) {
   const [status, setStatus] = useState<GitStatusResult>({ files: [] });
   const [log, setLog] = useState<GitLogResult>({ commits: [] });
@@ -136,7 +138,18 @@ export default function SourceControlPanel({
   if (model.storageKind !== ProjectStorageKind.BrowserGit) {
     return (
       <section className="flex h-full flex-col bg-panel">
-        <div className="flex h-9 items-center px-4 text-[11px] uppercase tracking-[0.08em] text-muted">Source Control</div>
+        <div className="flex h-9 items-center px-4 text-[11px] uppercase tracking-[0.08em] text-muted">
+          <span>Source Control</span>
+          <button
+            type="button"
+            className="ml-auto grid h-6 w-6 place-items-center rounded hover:bg-panel2 hover:text-fg"
+            aria-label="收起左侧栏"
+            title="收起左侧栏"
+            onClick={onCollapse}
+          >
+            <ChevronLeft size={14} />
+          </button>
+        </div>
         <div className="m-3 rounded border border-border bg-panel2 p-3 text-xs leading-5 text-muted">
           <p>当前项目使用 Database 存储，没有 Git working tree。</p>
           <button
@@ -158,15 +171,26 @@ export default function SourceControlPanel({
     <section className="flex h-full min-h-0 flex-col bg-panel" aria-label="Source Control">
       <div className="flex h-9 flex-none items-center gap-2 px-4 text-[11px] uppercase tracking-[0.08em] text-muted">
         <span>Source Control</span>
-        <button
-          type="button"
-          className="ml-auto grid h-6 w-6 place-items-center rounded hover:bg-panel2 hover:text-fg"
-          aria-label="刷新 Git 状态"
-          disabled={loading}
-          onClick={() => void refresh()}
-        >
-          <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
-        </button>
+        <div className="ml-auto flex items-center">
+          <button
+            type="button"
+            className="grid h-6 w-6 place-items-center rounded hover:bg-panel2 hover:text-fg"
+            aria-label="刷新 Git 状态"
+            disabled={loading}
+            onClick={() => void refresh()}
+          >
+            <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+          </button>
+          <button
+            type="button"
+            className="grid h-6 w-6 place-items-center rounded hover:bg-panel2 hover:text-fg"
+            aria-label="收起左侧栏"
+            title="收起左侧栏"
+            onClick={onCollapse}
+          >
+            <ChevronLeft size={14} />
+          </button>
+        </div>
       </div>
       <div className="flex h-8 flex-none items-center gap-2 border-y border-border px-3 text-xs text-fg">
         <GitBranch size={13} className="text-accent" />

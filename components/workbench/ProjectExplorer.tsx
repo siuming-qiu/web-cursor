@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { ChevronRight, FileCode2, Folder, FolderOpen, Plus, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileCode2, Folder, FolderOpen, Plus, X } from "lucide-react";
 import type { ProjectFileSummary } from "@/lib/projectTypes";
 
 type FileTreeNode =
@@ -72,11 +72,13 @@ export default function ProjectExplorer({
   activePath,
   onOpenFile,
   onNewFile,
+  onCollapse,
 }: {
   files: ProjectFileSummary[];
   activePath?: string;
   onOpenFile(path: string): void;
   onNewFile(path: string): void | Promise<void>;
+  onCollapse(): void;
 }) {
   const [creating, setCreating] = useState(false);
   const [path, setPath] = useState("src/components/NewFile.tsx");
@@ -166,15 +168,26 @@ export default function ProjectExplorer({
     <section className="flex h-full min-h-0 flex-col bg-panel" aria-label="Explorer">
       <div className="flex h-9 flex-none items-center px-4 text-[11px] uppercase tracking-[0.08em] text-muted">
         <span>Explorer</span>
-        <button
-          type="button"
-          className="ml-auto grid h-6 w-6 place-items-center rounded hover:bg-panel2 hover:text-fg"
-          aria-label="新建文件"
-          title="新建文件"
-          onClick={() => setCreating(true)}
-        >
-          <Plus size={13} />
-        </button>
+        <div className="ml-auto flex items-center">
+          <button
+            type="button"
+            className="grid h-6 w-6 place-items-center rounded hover:bg-panel2 hover:text-fg"
+            aria-label="新建文件"
+            title="新建文件"
+            onClick={() => setCreating(true)}
+          >
+            <Plus size={13} />
+          </button>
+          <button
+            type="button"
+            className="grid h-6 w-6 place-items-center rounded hover:bg-panel2 hover:text-fg"
+            aria-label="收起左侧栏"
+            title="收起左侧栏"
+            onClick={onCollapse}
+          >
+            <ChevronLeft size={14} />
+          </button>
+        </div>
       </div>
       <div className="flex h-8 flex-none items-center gap-1.5 border-y border-border px-3 text-xs font-semibold text-fg">
         <FolderOpen size={14} className="text-accent" />

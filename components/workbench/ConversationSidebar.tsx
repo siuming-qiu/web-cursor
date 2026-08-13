@@ -1,7 +1,7 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { Loader2, MessageSquare, Plus } from "lucide-react";
+import { ChevronRight, Loader2, MessageSquare, Plus } from "lucide-react";
 import ChatPanel from "@/components/chat/ChatPanel";
 import { formatTime, type Conversation } from "@/lib/projectTypes";
 import type { Message, SendAttachment } from "@/lib/types";
@@ -17,6 +17,7 @@ type ConversationSidebarProps = {
   onSend: (text: string, attachments?: SendAttachment[]) => void;
   onResume: () => void;
   onStop: () => void;
+  onCollapse: () => void;
   placement?: "left" | "right";
 };
 
@@ -31,6 +32,7 @@ export default function ConversationSidebar({
   onSend,
   onResume,
   onStop,
+  onCollapse,
   placement = "left",
 }: ConversationSidebarProps) {
   const t = useTranslations("Workbench");
@@ -38,18 +40,29 @@ export default function ConversationSidebar({
 
   return (
     <div className={
-      "flex h-full w-[380px] flex-none flex-col bg-panel " +
+      "flex h-full w-full flex-none flex-col bg-panel " +
       (placement === "right" ? "border-l border-border" : "border-r border-border")
     }>
       <div className="h-9 flex-none flex items-center justify-between gap-2 px-[14px] border-b border-border text-[12px] text-muted uppercase tracking-[0.06em]">
         <span>{t("conversationThreads")}</span>
-        <button
-          className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-panel2 px-2.5 text-[12px] text-accent transition hover:border-accent hover:bg-[#1b1713]"
-          onClick={onNewConversation}
-        >
-          <Plus size={14} strokeWidth={2} />
-          {t("newConversation")}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-panel2 px-2.5 text-[12px] text-accent transition hover:border-accent hover:bg-[#1b1713]"
+            onClick={onNewConversation}
+          >
+            <Plus size={14} strokeWidth={2} />
+            {t("newConversation")}
+          </button>
+          <button
+            type="button"
+            className="grid h-7 w-7 place-items-center rounded text-muted hover:bg-panel2 hover:text-fg"
+            aria-label="收起右侧栏"
+            title="收起右侧栏"
+            onClick={onCollapse}
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
       </div>
       <div className="max-h-[160px] flex-none overflow-y-auto border-b border-border p-2">
         {conversations.length === 0 ? (

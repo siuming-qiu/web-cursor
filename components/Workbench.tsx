@@ -1,6 +1,6 @@
 /**
  * [INPUT]: optional projectId from route /p/[projectId]
- * [OUTPUT]: 三栏工作台；有 projectId 时带历史会话栏，无 projectId 时保持一期原始工作台
+ * [OUTPUT]: 聊天面板固定在右侧的工作台；有 projectId 时额外带历史会话栏
  * [POS]: B 域工作台装配层 —— 为每个 route project 创建独立 runtime store，再把 UI owner 下发给区域组件
  * [PROTOCOL]: 本文件不承载历史侧栏、编辑器、预览内部状态；新增区域状态先放到对应 workspace。
  */
@@ -135,8 +135,8 @@ function WorkbenchContent({
         />
       ) : (
         <main className="flex-1 flex min-h-0">
-          <ChatSidebar messages={chat.messages} projectId={chat.currentProjectId} onSend={chat.onSend} onResume={chat.onResume} onStop={chat.onStop} />
           <WorkspacePanels editor={editor} preview={preview} />
+          <ChatSidebar messages={chat.messages} projectId={chat.currentProjectId} onSend={chat.onSend} onResume={chat.onResume} onStop={chat.onStop} />
         </main>
       )}
 
