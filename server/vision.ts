@@ -1,6 +1,6 @@
 /**
  * [INPUT]: server-side image data URL from attachment storage
- * [OUTPUT]: visual observations from Yunwu Gemini chat-compatible API
+ * [OUTPUT]: visual observations from OpenLux Gemini chat-compatible API
  * [POS]: A 域视觉模型适配层 —— inspect_attachment 的内部子调用
  * [PROTOCOL]: 原图只在服务端读取并转发给视觉模型；主 agent transcript 不直接存 raw image
  */
@@ -8,10 +8,10 @@ import "server-only";
 import OpenAI from "openai";
 import { VISION_MODEL } from "@/server/models";
 
-const YUNWU_BASE_URL = "https://yunwu.ai/v1";
+const OPENLUX_BASE_URL = "https://api.openlux.ai/v1";
 
 const visionClient = new OpenAI({
-  baseURL: YUNWU_BASE_URL,
+  baseURL: OPENLUX_BASE_URL,
   apiKey: process.env.YUNWU_API_KEY ?? "missing-yunwu-api-key",
 });
 
