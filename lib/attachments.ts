@@ -1,6 +1,6 @@
 /**
  * [INPUT]: browser File objects selected by the user
- * [OUTPUT]: uploaded attachment ids and local preview metadata for chat turns
+ * [OUTPUT]: uploaded attachment ids and durable server preview metadata for chat turns
  * [POS]: B 域附件上传门面 —— 图片先传 /api/attachments，再由 /api/chat 引用 attachmentId
  * [PROTOCOL]: 只接受后端契约声明的 image/png、image/jpeg、image/webp；不按扩展名猜 MIME
  */
@@ -9,8 +9,8 @@
 import { req } from "@/lib/api";
 import {
   AttachmentType,
+  AttachmentSummarySchema,
   ImageMimeType,
-  type AttachmentSummary,
   type ImageMimeType as ImageMimeTypeValue,
 } from "@/types/attachment";
 import type { SendAttachment } from "@/lib/types";
@@ -30,8 +30,6 @@ export type PendingAttachment = {
   sizeBytes: number;
   previewUrl: string;
 };
-
-type UploadResponse = AttachmentSummary;
 
 export function createPendingAttachment(file: File): PendingAttachment {
   if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.type as ImageMimeTypeValue)) {
@@ -73,13 +71,15 @@ export async function uploadPendingAttachment(
   attachment: PendingAttachment,
   projectId?: string,
 ): Promise<SendAttachment> {
-  const uploaded = await req<UploadResponse>("POST", "/api/attachments", {
-    type: AttachmentType.Image,
-    mimeType: attachment.mimeType,
-    dataUrl: await readAsDataUrl(attachment.file),
-    fileName: attachment.name,
-    projectId,
-  });
+  const uploaded = AttachmentSummarySchema.parse(
+    await req<unknown>("POST", "/api/attachments", {
+      type: AttachmentType.Image,
+      mimeType: attachment.mimeType,
+      dataUrl: await readAsDataUrl(attachment.file),
+      fileName: attachment.name,
+      projectId,
+    }),
+  );
 
   return {
     id: uploaded.id,
@@ -87,6 +87,6 @@ export async function uploadPendingAttachment(
     type: uploaded.type,
     mimeType: uploaded.mimeType,
     sizeBytes: uploaded.sizeBytes,
-    previewUrl: attachment.previewUrl,
+    previewUrl: `/api/attachments/${uploaded.id}`,
   };
 }

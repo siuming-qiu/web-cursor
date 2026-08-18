@@ -180,6 +180,8 @@ export default function Composer({
 
     setError("");
     onSend(text, uploaded);
+    attachments.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
+    attachmentsRef.current = [];
     setInput("");
     setAttachments([]);
   }
