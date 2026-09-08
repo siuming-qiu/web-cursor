@@ -111,6 +111,7 @@ export default function ConversationSidebar({
         <ChatPanel
           messages={messages}
           projectId={projectId}
+          scrollContextKey={currentConversationId ?? `new:${projectId ?? "unbound"}`}
           onSend={onSend}
           onResume={onResume}
           onStop={onStop}

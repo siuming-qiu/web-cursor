@@ -20,6 +20,7 @@ import {
   AgentHarnessRenderingKey,
   AgentHarnessThinkingType,
   AgentHarnessToolChoice,
+  AgentHarnessToolsetProfileVersion,
   type AgentHarnessIdentityInput,
   type AgentHarnessProfileRegistry as AgentHarnessProfileRegistryValue,
   type AgentHarnessProfileSelection,
@@ -32,6 +33,7 @@ type ModelServerModule = typeof import("../../server/models");
 type ToolDefinitionsServerModule = typeof import("../../server/tools/definitions");
 
 let agentHarnessFor: AgentHarnessServerModule["agentHarnessFor"];
+let restoreAgentHarness: AgentHarnessServerModule["restoreAgentHarness"];
 let repositoryCapabilityPromptForStorageKind:
   LlmServerModule["repositoryCapabilityPromptForStorageKind"];
 let systemPromptForLocale: LlmServerModule["systemPromptForLocale"];
@@ -39,7 +41,7 @@ let agentModelRequestConfig: ModelServerModule["AGENT_MODEL_REQUEST_CONFIG"];
 let toolsForStorageKind: ToolDefinitionsServerModule["toolsForStorageKind"];
 
 beforeAll(async () => {
-  ({ agentHarnessFor } = await import("../../server/agentHarness"));
+  ({ agentHarnessFor, restoreAgentHarness } = await import("../../server/agentHarness"));
   ({
     repositoryCapabilityPromptForStorageKind,
     systemPromptForLocale,
@@ -50,7 +52,7 @@ beforeAll(async () => {
   ({ toolsForStorageKind } = await import("../../server/tools/definitions"));
 });
 
-const renderingCases = [
+const legacyV1RenderingCases = [
   {
     locale: "zh",
     storageKind: ProjectStorageKind.Database,
@@ -93,10 +95,53 @@ const renderingCases = [
   },
 ] as const;
 
+const activeRenderingCases = [
+  {
+    locale: "zh",
+    storageKind: ProjectStorageKind.Database,
+    systemPromptDigest: "f317dc9cfdc9fca24f1dcd5b595acee34557f7533b91f533157ab38acf0510c7",
+    toolsetDigest: "6f524c43f148f4b13cb1724ccfb07d6f1875de535ee9dcef7bddae43fda4fc2a",
+    repositoryCapabilityDigest:
+      "b2d0e79db83453223b26d1fd53792ae2bd813f3fa6b7fd33ae2220913bf9d45e",
+    staticPrefixDigest:
+      "bbc5170cc2df57b8ef3fbe0a78c9deb286caeebe88d976b5878cc1adc1417201",
+  },
+  {
+    locale: "zh",
+    storageKind: ProjectStorageKind.BrowserGit,
+    systemPromptDigest: "bddd9cad8e5131a33ca88d27c96598e98d05a79ca5c8f6d3bd7ec3decbe3e7c3",
+    toolsetDigest: "182d6094d343af59f6727f4fc3bf55915a8fa91797c6dc7cf2802dbc7b497d49",
+    repositoryCapabilityDigest:
+      "6e6865ccca91f9c6c5cf053f7523571d2290afdbc29479e517edf30420e30582",
+    staticPrefixDigest:
+      "19db664801f31e824977fd19bb51cfb5bbf84ea4e41f5504d65f21c74001ecd7",
+  },
+  {
+    locale: "en",
+    storageKind: ProjectStorageKind.Database,
+    systemPromptDigest: "bb3cdd0a4ed2200d2a32109ba0e4060eb01b8c21e1fd1b707e2f1ebdc9aea475",
+    toolsetDigest: "6f524c43f148f4b13cb1724ccfb07d6f1875de535ee9dcef7bddae43fda4fc2a",
+    repositoryCapabilityDigest:
+      "b2d0e79db83453223b26d1fd53792ae2bd813f3fa6b7fd33ae2220913bf9d45e",
+    staticPrefixDigest:
+      "363d6011c08b418493c55962d7794aa2de5d2d1d245ba53bbe93df717019cbac",
+  },
+  {
+    locale: "en",
+    storageKind: ProjectStorageKind.BrowserGit,
+    systemPromptDigest: "401b1a46fd21520ebbb611b64b2bfecad5e70efa46c008e97bcf99977139b1b3",
+    toolsetDigest: "182d6094d343af59f6727f4fc3bf55915a8fa91797c6dc7cf2802dbc7b497d49",
+    repositoryCapabilityDigest:
+      "6e6865ccca91f9c6c5cf053f7523571d2290afdbc29479e517edf30420e30582",
+    staticPrefixDigest:
+      "4c68e7da21fc9067a0f740d1f9faae48453aa2d32d20f4d1b93d15500f8181ef",
+  },
+] as const;
+
 const modelConfigDigest =
   "2e81f74474e96885e8f67ce5e9e09d70c266fc70776d92c13228a60efd0e853a";
 
-const baseToolOrder = [
+const v1BaseToolOrder = [
   "list_files",
   "search_text",
   "read_file",
@@ -109,8 +154,21 @@ const baseToolOrder = [
   "generate_image",
 ] as const;
 
-const browserGitToolOrder = [
-  ...baseToolOrder,
+const subagentControlToolOrder = [
+  "spawn_agent",
+  "wait_agent",
+  "send_message",
+  "followup_task",
+  "interrupt_agent",
+] as const;
+
+const activeDatabaseToolOrder = [
+  ...v1BaseToolOrder,
+  ...subagentControlToolOrder,
+] as const;
+
+const v1BrowserGitToolOrder = [
+  ...v1BaseToolOrder,
   "git_status",
   "git_stage",
   "git_unstage",
@@ -119,16 +177,30 @@ const browserGitToolOrder = [
   "git_current_branch",
 ] as const;
 
+const activeBrowserGitToolOrder = [
+  ...v1BrowserGitToolOrder,
+  ...subagentControlToolOrder,
+] as const;
+
+const legacyV1Selection = {
+  ...ActiveAgentHarnessProfileSelection,
+  toolset: {
+    id: AgentHarnessProfileId.Toolset,
+    version: AgentHarnessToolsetProfileVersion.V1,
+  },
+} as const satisfies AgentHarnessProfileSelection;
+
 function identityInput(
   locale: "zh" | "en" = "zh",
   storageKind: ProjectStorageKind = ProjectStorageKind.Database,
+  toolsetVersion: number = AgentHarnessToolsetProfileVersion.V2,
 ): AgentHarnessIdentityInput {
   return {
     locale,
     storageKind,
     systemPrompt: systemPromptForLocale(locale, storageKind),
     repositoryCapability: repositoryCapabilityPromptForStorageKind(storageKind),
-    tools: toolsForStorageKind(storageKind),
+    tools: toolsForStorageKind(storageKind, toolsetVersion),
     request: agentModelRequestConfig,
   };
 }
@@ -148,7 +220,7 @@ function expectRegistryError(
 }
 
 describe("versioned agent harness registry", () => {
-  it.each(renderingCases)(
+  it.each(activeRenderingCases)(
     "resolves the real $locale × $storageKind output with fixed digests",
     ({
       locale,
@@ -194,15 +266,48 @@ describe("versioned agent harness registry", () => {
     },
   );
 
-  it("freezes Database 10-tool and BrowserGit 16-tool provider order exactly", () => {
+  it("freezes active Database 15-tool and BrowserGit 21-tool provider order exactly", () => {
     const database = agentHarnessFor("zh", ProjectStorageKind.Database);
     const browserGit = agentHarnessFor("zh", ProjectStorageKind.BrowserGit);
 
-    expect(database.identity.toolset.toolOrder).toEqual(baseToolOrder);
-    expect(database.tools.map((tool) => tool.function.name)).toEqual(baseToolOrder);
-    expect(browserGit.identity.toolset.toolOrder).toEqual(browserGitToolOrder);
-    expect(browserGit.tools.map((tool) => tool.function.name)).toEqual(browserGitToolOrder);
+    expect(database.identity.toolset.toolOrder).toEqual(activeDatabaseToolOrder);
+    expect(database.tools.map((tool) => tool.function.name)).toEqual(activeDatabaseToolOrder);
+    expect(browserGit.identity.toolset.toolOrder).toEqual(activeBrowserGitToolOrder);
+    expect(browserGit.tools.map((tool) => tool.function.name)).toEqual(activeBrowserGitToolOrder);
   });
+
+  it.each(legacyV1RenderingCases)(
+    "reconstructs and restores the frozen v1 $locale × $storageKind toolset",
+    ({
+      locale,
+      storageKind,
+      systemPromptDigest,
+      toolsetDigest,
+      repositoryCapabilityDigest,
+      staticPrefixDigest,
+    }) => {
+      const harness = agentHarnessFor(locale, storageKind, legacyV1Selection);
+      const expectedOrder = storageKind === ProjectStorageKind.Database
+        ? v1BaseToolOrder
+        : v1BrowserGitToolOrder;
+
+      expect(harness.identity).toMatchObject({
+        selection: legacyV1Selection,
+        systemPrompt: { renderedDigest: systemPromptDigest },
+        toolset: {
+          profileVersion: AgentHarnessToolsetProfileVersion.V1,
+          toolOrder: expectedOrder,
+          schemaDigest: toolsetDigest,
+        },
+        repositoryCapability: {
+          renderedDigest: repositoryCapabilityDigest,
+        },
+        staticPrefixDigest,
+      });
+      expect(harness.tools.map((tool) => tool.function.name)).toEqual(expectedOrder);
+      expect(restoreAgentHarness(harness.identity).identity).toEqual(harness.identity);
+    },
+  );
 
   it("stores all four expected rendering digests on every versioned profile", () => {
     const keys: AgentHarnessRenderingKey[] = [
@@ -214,6 +319,7 @@ describe("versioned agent harness registry", () => {
 
     expect(AgentHarnessProfileRegistry.map((profile) => profile.kind)).toEqual([
       AgentHarnessProfileKind.SystemPrompt,
+      AgentHarnessProfileKind.Toolset,
       AgentHarnessProfileKind.Toolset,
       AgentHarnessProfileKind.Model,
       AgentHarnessProfileKind.RepositoryCapability,
@@ -238,7 +344,7 @@ describe("versioned agent harness registry", () => {
     });
     expect(identity.toolset).toMatchObject({
       profileId: AgentHarnessProfileId.Toolset,
-      profileVersion: 1,
+      profileVersion: AgentHarnessToolsetProfileVersion.V2,
     });
     expect(identity.model).toMatchObject({
       profileId: AgentHarnessProfileId.Model,
@@ -280,6 +386,22 @@ describe("versioned agent harness registry", () => {
       AgentHarnessRegistryErrorCode.UnknownProfileVersion,
     );
     expect(error.context.ref).toEqual(selection.systemPrompt);
+  });
+
+  it("fails closed when harness assembly receives an unknown toolset version", () => {
+    const selection = {
+      ...ActiveAgentHarnessProfileSelection,
+      toolset: {
+        id: AgentHarnessProfileId.Toolset,
+        version: 999,
+      },
+    } satisfies AgentHarnessProfileSelection;
+
+    expect(() => agentHarnessFor(
+      "zh",
+      ProjectStorageKind.Database,
+      selection,
+    )).toThrow("Unknown agent toolset version: 999");
   });
 
   it("fails closed when a registered expected digest drifts", () => {

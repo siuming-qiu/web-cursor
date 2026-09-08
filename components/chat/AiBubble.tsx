@@ -4,12 +4,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import Spinner from "@/components/common/Spinner";
 import MarkdownMessage from "./MarkdownMessage";
+import SubagentActivityCard from "./SubagentActivityCard";
 import FigmaIntegrationCard from "@/components/integrations/figma/FigmaIntegrationCard";
 import ImageRunCard from "./ImageRunCard";
 import { AiTimelineItemKind } from "@/lib/types";
 import type { AgentFileChange } from "@/lib/types";
 import type { Message, Phase } from "@/lib/types";
-import { useConversationStore } from "@/lib/conversationStore";
+import {
+  AgentActivitySource,
+  useConversationStore,
+} from "@/lib/conversationStore";
 import { ContextCompactionPhase } from "@/types/chat";
 
 type AiMsg = Extract<Message, { role: "ai" }>;
@@ -149,6 +153,9 @@ export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => vo
   const t = useTranslations("Chat");
   const busy = useConversationStore((state) => state.busy && state.activeAiId === m.id);
   const activityText = useConversationStore((state) => state.activityText);
+  const activitySource = useConversationStore((state) => state.activitySource);
+  const suppressSubagentActivity = activitySource === AgentActivitySource.Subagent
+    && Boolean(m.subagentRuns?.length);
   const hasHeal =
     m.attempts.length > 1 ||
     m.attempts.some((a) => a.phase === "compile-fail" || a.phase === "runtime-fail");
@@ -172,18 +179,25 @@ export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => vo
     ? [...m.timeline].sort((a, b) => a.receivedAt - b.receivedAt || a.order - b.order)
     : null;
 
-  function renderChatText(key?: string) {
-    if (!m.chatText || m.integrationCard) return null;
+  function renderChatText(
+    key?: string,
+    start = 0,
+    end = m.chatText?.length ?? 0,
+  ) {
+    const content = m.chatText?.slice(start, end);
+    if (!content || m.integrationCard) return null;
 
     return (
       <div key={key} className="markdown-message mt-3">
-        <MarkdownMessage content={m.chatText} />
+        <MarkdownMessage content={content} />
       </div>
     );
   }
 
   function renderTimelineItem(item: NonNullable<typeof timeline>[number]) {
-    if (item.kind === AiTimelineItemKind.Chat) return renderChatText(item.id);
+    if (item.kind === AiTimelineItemKind.Chat) {
+      return renderChatText(item.id, item.start, item.end);
+    }
 
     if (item.kind === AiTimelineItemKind.ContextCompaction) {
       const active = item.phase === ContextCompactionPhase.Started;
@@ -219,6 +233,11 @@ export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => vo
       return run ? <ImageRunCard key={item.id} run={run} onResume={onResume} /> : null;
     }
 
+    if (item.kind === AiTimelineItemKind.SubagentRun) {
+      const run = m.subagentRuns?.find((candidate) => candidate.agentId === item.agentId);
+      return run ? <SubagentActivityCard key={item.id} run={run} /> : null;
+    }
+
     return null;
   }
 
@@ -230,7 +249,7 @@ export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => vo
         </div>
       )}
 
-      {m.attempts.length === 0 && busy && !m.chatText && !m.fileChanges?.length && !m.fileWriteStreams?.length && !m.imageRuns?.length && !m.timeline?.length && (
+      {m.attempts.length === 0 && busy && !suppressSubagentActivity && !m.chatText && !m.fileChanges?.length && !m.fileWriteStreams?.length && !m.imageRuns?.length && !m.timeline?.length && (
         <span>
           <Spinner /> {activityText || t("generating")}
         </span>
@@ -249,10 +268,14 @@ export default function AiBubble({ m, onResume }: { m: AiMsg; onResume: () => vo
           {m.imageRuns?.map((run) => (
             <ImageRunCard key={run.runId} run={run} onResume={onResume} />
           ))}
+
+          {m.subagentRuns?.map((run) => (
+            <SubagentActivityCard key={run.agentId} run={run} />
+          ))}
         </>
       )}
 
-      {busy && (m.fileChanges?.length || m.fileWriteStreams?.length || m.chatText) && !m.summary && (
+      {busy && !suppressSubagentActivity && (m.fileChanges?.length || m.fileWriteStreams?.length || m.chatText) && !m.summary && (
         <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-border bg-codebg px-2.5 py-1.5 text-[12.5px] text-muted">
           <Spinner />
           <span>{activityText || t("stillWorking")}</span>

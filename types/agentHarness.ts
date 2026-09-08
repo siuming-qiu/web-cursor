@@ -41,9 +41,17 @@ export const AgentHarnessProfileId = {
 export type AgentHarnessProfileId =
   typeof AgentHarnessProfileId[keyof typeof AgentHarnessProfileId];
 
+export const AgentHarnessToolsetProfileVersion = {
+  V1: 1,
+  V2: 2,
+} as const;
+
+export type AgentHarnessToolsetProfileVersion =
+  typeof AgentHarnessToolsetProfileVersion[keyof typeof AgentHarnessToolsetProfileVersion];
+
 export const AgentHarnessProfileVersion = {
   SystemPrompt: 1,
-  Toolset: 1,
+  Toolset: AgentHarnessToolsetProfileVersion.V2,
   Model: 1,
   RepositoryCapability: 1,
 } as const;

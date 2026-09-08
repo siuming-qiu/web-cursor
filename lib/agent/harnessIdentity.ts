@@ -16,6 +16,7 @@ import {
   AgentHarnessRenderingKey,
   AgentHarnessThinkingType,
   AgentHarnessToolChoice,
+  AgentHarnessToolsetProfileVersion,
   type AgentHarnessIdentity,
   type AgentHarnessIdentityInput,
   type AgentHarnessModelRequestConfig,
@@ -98,7 +99,7 @@ export const AgentHarnessProfileRegistry: AgentHarnessProfileRegistryValue = Obj
     kind: AgentHarnessProfileKind.Toolset,
     ref: Object.freeze({
       id: AgentHarnessProfileId.Toolset,
-      version: 1,
+      version: AgentHarnessToolsetProfileVersion.V1,
     }),
     expectedDigestByRendering: frozenExpectedDigests({
       [AgentHarnessRenderingKey.ZhDatabase]:
@@ -109,6 +110,23 @@ export const AgentHarnessProfileRegistry: AgentHarnessProfileRegistryValue = Obj
         "4d98ed158e0162f559359a4964c8e9ed0d26414dc3345464d593e9f37ce4eecf",
       [AgentHarnessRenderingKey.EnBrowserGit]:
         "01ffef3f0f4127e74748c4b02c6eba783d38cc72b053c2ad618c816d84362257",
+    }),
+  }),
+  Object.freeze({
+    kind: AgentHarnessProfileKind.Toolset,
+    ref: Object.freeze({
+      id: AgentHarnessProfileId.Toolset,
+      version: AgentHarnessToolsetProfileVersion.V2,
+    }),
+    expectedDigestByRendering: frozenExpectedDigests({
+      [AgentHarnessRenderingKey.ZhDatabase]:
+        "6f524c43f148f4b13cb1724ccfb07d6f1875de535ee9dcef7bddae43fda4fc2a",
+      [AgentHarnessRenderingKey.ZhBrowserGit]:
+        "182d6094d343af59f6727f4fc3bf55915a8fa91797c6dc7cf2802dbc7b497d49",
+      [AgentHarnessRenderingKey.EnDatabase]:
+        "6f524c43f148f4b13cb1724ccfb07d6f1875de535ee9dcef7bddae43fda4fc2a",
+      [AgentHarnessRenderingKey.EnBrowserGit]:
+        "182d6094d343af59f6727f4fc3bf55915a8fa91797c6dc7cf2802dbc7b497d49",
     }),
   }),
   Object.freeze({

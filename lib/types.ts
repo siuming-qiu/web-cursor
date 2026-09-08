@@ -11,6 +11,12 @@ import type {
 } from "@/types/image";
 import type { IntegrationCardMeta } from "@/types/integration";
 import type { ContextCompactionPhase } from "@/types/chat";
+import type {
+  SubagentFailure,
+  SubagentProfileId,
+  SubagentTaskStatus,
+  SubagentToolStatus,
+} from "@/types/subagent";
 
 export type Phase =
   | "writing"
@@ -59,18 +65,69 @@ export type ImageRunView = {
   resumeOnTerminal?: boolean;
 };
 
+export const SubagentActivityViewKind = {
+  Started: "started",
+  ModelStarted: "model_started",
+  ToolStarted: "tool_started",
+  ModelOutput: "model_output",
+} as const;
+
+export type SubagentActivityView =
+  | {
+      id: string;
+      kind: typeof SubagentActivityViewKind.Started;
+    }
+  | {
+      id: string;
+      kind: typeof SubagentActivityViewKind.ModelStarted;
+      round: number;
+    }
+  | {
+      id: string;
+      kind: typeof SubagentActivityViewKind.ToolStarted;
+      toolCallId: string;
+      toolName: string;
+      detail?: string;
+      result?: typeof SubagentToolStatus[keyof typeof SubagentToolStatus];
+    }
+  | {
+      id: string;
+      kind: typeof SubagentActivityViewKind.ModelOutput;
+    };
+
+export const SubagentObservationStatus = {
+  Live: "live",
+  Disconnected: "disconnected",
+} as const;
+
+export type SubagentRunView = {
+  agentId: string;
+  profileId: SubagentProfileId;
+  task: string;
+  status: SubagentTaskStatus;
+  failure?: SubagentFailure;
+  observation: {
+    transportId: string;
+    status: typeof SubagentObservationStatus[keyof typeof SubagentObservationStatus];
+  };
+  activities: SubagentActivityView[];
+};
+
 export const AiTimelineItemKind = {
   Chat: "chat",
   ContextCompaction: "context_compaction",
   FileWriteStream: "file_write_stream",
   FileChange: "file_change",
   ImageRun: "image_run",
+  SubagentRun: "subagent_run",
 } as const;
 
 export type AiTimelineItem =
   | {
       id: string;
       kind: typeof AiTimelineItemKind.Chat;
+      start: number;
+      end: number;
       receivedAt: number;
       order: number;
     }
@@ -99,6 +156,13 @@ export type AiTimelineItem =
       id: string;
       kind: typeof AiTimelineItemKind.ImageRun;
       runId: string;
+      receivedAt: number;
+      order: number;
+    }
+  | {
+      id: string;
+      kind: typeof AiTimelineItemKind.SubagentRun;
+      agentId: string;
       receivedAt: number;
       order: number;
     };
@@ -130,6 +194,7 @@ export type Message =
       fileChanges?: AgentFileChange[];
       fileWriteStreams?: FileWriteStreamView[];
       imageRuns?: ImageRunView[];
+      subagentRuns?: SubagentRunView[];
       integrationCard?: IntegrationCardMeta;
       timeline?: AiTimelineItem[];
     };

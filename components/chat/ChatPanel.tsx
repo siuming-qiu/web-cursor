@@ -11,6 +11,19 @@ import { useConversationStore } from "@/lib/conversationStore";
 const chipBase =
   "bg-panel2 border border-border rounded-[9px] px-3 py-[9px] text-[13px] text-fg text-left flex items-center gap-[9px] transition hover:border-accent hover:translate-x-[2px]";
 
+type SharedChatPanelProps = {
+  messages: Message[];
+  projectId?: string;
+  onSend: (text: string, attachments?: SendAttachment[]) => void;
+  onResume: () => void;
+  onStop: () => void;
+};
+
+type ChatPanelProps = SharedChatPanelProps & (
+  | { readOnly: true; scrollContextKey?: string }
+  | { readOnly?: false; scrollContextKey: string }
+);
+
 function formatBytes(bytes: number) {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
@@ -100,19 +113,16 @@ export default function ChatPanel({
   onSend,
   onResume,
   onStop,
+  scrollContextKey,
   readOnly = false,
-}: {
-  messages: Message[];
-  projectId?: string;
-  onSend: (text: string, attachments?: SendAttachment[]) => void;
-  onResume: () => void;
-  onStop: () => void;
-  readOnly?: boolean;
-}) {
+}: ChatPanelProps) {
   const t = useTranslations("Chat");
   const busy = useConversationStore((state) => state.busy);
   const activeAiId = useConversationStore((state) => state.activeAiId);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+  const effectiveScrollContextKey = scrollContextKey ?? "read-only";
+  const previousScrollContextKeyRef = useRef(effectiveScrollContextKey);
   const hasActiveAiMessage = messages.some(
     (message) => message.role === "ai" && message.id === activeAiId,
   );
@@ -122,8 +132,19 @@ export default function ChatPanel({
     { label: t("quickLogin"), prompt: t("promptLogin") },
   ];
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages]);
+    if (previousScrollContextKeyRef.current !== effectiveScrollContextKey) {
+      previousScrollContextKeyRef.current = effectiveScrollContextKey;
+      stickToBottomRef.current = true;
+    }
+    if (scrollRef.current && stickToBottomRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [effectiveScrollContextKey, messages]);
+
+  function handleSend(text: string, attachments?: SendAttachment[]) {
+    stickToBottomRef.current = true;
+    onSend(text, attachments);
+  }
 
   return (
     <div className="flex flex-col min-w-0 h-full w-full bg-panel">
@@ -131,7 +152,15 @@ export default function ChatPanel({
         <MessageCircle size={14} strokeWidth={1.8} /> {t("title")}
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-[18px_16px] flex flex-col gap-4">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto p-[18px_16px] flex flex-col gap-4"
+        onScroll={(event) => {
+          const target = event.currentTarget;
+          const bottomDistance = target.scrollHeight - target.scrollTop - target.clientHeight;
+          stickToBottomRef.current = bottomDistance < 48;
+        }}
+      >
         {messages.length === 0 && (
           <div className="text-muted leading-[1.7]">
             <h3 className="text-fg text-[15px] m-0 mb-1.5">{t("emptyTitle")}</h3>
@@ -139,7 +168,7 @@ export default function ChatPanel({
             <div className="text-[11px] text-muted uppercase tracking-[0.08em] mt-4 mb-0.5">{t("quickStart")}</div>
             <div className="flex flex-col gap-2 mt-3.5">
               {quick.map((c) => (
-                <button key={c.label} className={chipBase} onClick={() => onSend(c.prompt)}>
+                <button key={c.label} className={chipBase} onClick={() => handleSend(c.prompt)}>
                   <span className="text-accent">⌁</span> {c.label}
                 </button>
               ))}
@@ -182,7 +211,7 @@ export default function ChatPanel({
         )}
       </div>
 
-      {!readOnly && <Composer busy={busy} projectId={projectId} onSend={onSend} onStop={onStop} />}
+      {!readOnly && <Composer busy={busy} projectId={projectId} onSend={handleSend} onStop={onStop} />}
     </div>
   );
 }

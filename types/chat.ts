@@ -15,6 +15,7 @@ import { ClientToolCallSchema } from "./clientTool";
 import { IntegrationCardMetaSchema } from "./integration";
 import { ProjectFileOperation } from "./projectFileMutation";
 import { ProjectRepositoryDescriptorSchema } from "./projectRepository";
+import { SubagentActivitySchema } from "./subagent";
 import { ToolCallIdSchema, ToolCallNameSchema, ToolName } from "./tool";
 import { GenerateImageItemSchema, ToolResultSchema } from "./toolSchema";
 
@@ -59,6 +60,7 @@ export const ChatEventType = {
   FilesChanged: "files_changed",
   IntegrationCard: "integration_card",
   ContextCompaction: "context_compaction",
+  SubagentActivity: "subagent_activity",
   Title: "title",
   RunState: "run_state",
   Done: "done",
@@ -154,6 +156,11 @@ export const ChatEventSchema = z.discriminatedUnion("type", [
     ...ChatEventRunShape,
     type: z.literal(ChatEventType.ContextCompaction),
     phase: z.enum(ContextCompactionPhase),
+  }).strict(),
+  z.object({
+    ...ChatEventRunShape,
+    type: z.literal(ChatEventType.SubagentActivity),
+    activity: SubagentActivitySchema,
   }).strict(),
   z.object({
     ...ChatEventRunShape,

@@ -1,8 +1,8 @@
 /**
- * [INPUT]: LLM tool_call metadata + project/owner context + optional AgentRun invocation transaction context
- * [OUTPUT]: structured tool execution result，必要时把 mutation/image attribution 写入同一持久事务
- * [POS]: A 域工具执行层 —— 把 LLM 工具调用分发到 server/files.ts
- * [PROTOCOL]: LLM 不传 projectId/ownerId/run identity；可信编排层通过 ToolExecutionContext 绑定
+ * [INPUT]: LLM tool_call metadata + trusted project/owner/runtime context + optional AgentRun transaction context
+ * [OUTPUT]: structured repository、attachment、Figma、image-run 或 Child-control result
+ * [POS]: A 域工具执行层 —— Parent/Child Host 共用的服务端工具分发器
+ * [PROTOCOL]: LLM 不传 projectId/ownerId/run identity；Child 控制工具必须由可信编排层显式绑定 adapter
  */
 import "server-only";
 import { z } from "zod";
@@ -23,6 +23,7 @@ import {
 } from "@/server/files";
 import {
   DeleteFileArgsSchema,
+  FollowupTaskArgsSchema,
   GenerateImageArgsSchema,
   GitCommitArgsSchema,
   GitCurrentBranchArgsSchema,
@@ -32,17 +33,26 @@ import {
   GitUnstageArgsSchema,
   InspectAttachmentArgsSchema,
   InspectFigmaDesignArgsSchema,
+  InterruptAgentArgsSchema,
   ListFilesArgsSchema,
   ReadFileArgsSchema,
   RenameFileArgsSchema,
   RunPreviewArgsSchema,
+  SendMessageArgsSchema,
   SearchTextArgsSchema,
+  SpawnAgentArgsSchema,
+  WaitAgentArgsSchema,
   WriteFileArgsSchema,
 } from "@/types/toolSchema";
 import { ToolName, type ToolCallMeta, type ToolName as ToolNameType } from "@/types/tool";
 import {
   ToolExecutionErrorCode,
+  type FollowupTaskResult,
+  type InterruptAgentResult,
+  type SendMessageResult,
+  type SpawnAgentResult,
   type ToolExecutionErrorCode as ToolExecutionErrorCodeValue,
+  type WaitAgentResult,
 } from "@/types/toolResult";
 
 export { ToolExecutionErrorCode };
@@ -50,13 +60,29 @@ export { ToolExecutionErrorCode };
 export type ToolExecutionContext = {
   ownerId: string;
   projectId: string;
-  conversationId: string;
+  conversationId?: string;
+  signal?: AbortSignal;
+  subagentControl?: SubagentToolControl;
   databaseWriter?: DatabaseFileTransaction;
   agentRun?: {
     id: string;
     invocationId: string;
   };
 };
+
+type SpawnAgentArgs = z.infer<typeof SpawnAgentArgsSchema>;
+type WaitAgentArgs = z.infer<typeof WaitAgentArgsSchema>;
+type SendMessageArgs = z.infer<typeof SendMessageArgsSchema>;
+type FollowupTaskArgs = z.infer<typeof FollowupTaskArgsSchema>;
+type InterruptAgentArgs = z.infer<typeof InterruptAgentArgsSchema>;
+
+export type SubagentToolControl = Readonly<{
+  spawn(args: SpawnAgentArgs): ToolExecutionResult;
+  wait(args: WaitAgentArgs, signal?: AbortSignal): Promise<ToolExecutionResult>;
+  sendMessage(args: SendMessageArgs): ToolExecutionResult;
+  followupTask(args: FollowupTaskArgs): ToolExecutionResult;
+  interrupt(args: InterruptAgentArgs): ToolExecutionResult;
+}>;
 
 export type ToolExecutionResult =
   | { status: "ok"; tool: typeof ToolName.ListFiles; revision: number; files: { path: string; updatedAt?: string }[] }
@@ -75,6 +101,11 @@ export type ToolExecutionResult =
     }
   | FigmaDesignContext
   | ReturnType<typeof pendingImageRunResult>
+  | SpawnAgentResult
+  | WaitAgentResult
+  | SendMessageResult
+  | FollowupTaskResult
+  | InterruptAgentResult
   | {
       status: "error";
       tool: string;
@@ -92,6 +123,28 @@ function isKnownTool(name: string): name is ToolNameType {
 
 function errorResult(tool: string, code: Extract<ToolExecutionResult, { status: "error" }>["code"], message: string): ToolExecutionResult {
   return { status: "error", tool, code, message };
+}
+
+function requireConversationId(
+  tool: string,
+  context: ToolExecutionContext,
+): string | ToolExecutionResult {
+  return context.conversationId ?? errorResult(
+    tool,
+    ToolExecutionErrorCode.Unsupported,
+    `${tool} requires a Conversation context.`,
+  );
+}
+
+function requireSubagentControl(
+  tool: string,
+  context: ToolExecutionContext,
+): SubagentToolControl | ToolExecutionResult {
+  return context.subagentControl ?? errorResult(
+    tool,
+    ToolExecutionErrorCode.Unsupported,
+    `${tool} requires an Agent task runtime.`,
+  );
 }
 
 export async function executeToolCall(
@@ -187,9 +240,11 @@ export async function executeToolCall(
       }
       case ToolName.InspectAttachment: {
         const args = InspectAttachmentArgsSchema.parse(parseArgs(toolCall.arguments));
+        const conversationId = requireConversationId(tool, ctx);
+        if (typeof conversationId !== "string") return conversationId;
         const result = await inspectAttachment({
           ownerId: ctx.ownerId,
-          conversationId: ctx.conversationId,
+          conversationId,
           attachmentId: args.attachmentId,
         });
         return { status: "ok", tool, ...result };
@@ -205,10 +260,12 @@ export async function executeToolCall(
       }
       case ToolName.GenerateImage: {
         const args = GenerateImageArgsSchema.parse(parseArgs(toolCall.arguments));
+        const conversationId = requireConversationId(tool, ctx);
+        if (typeof conversationId !== "string") return conversationId;
         const run = await createPendingImageRun({
           ownerId: ctx.ownerId,
           projectId: ctx.projectId,
-          conversationId: ctx.conversationId,
+          conversationId,
           toolCallId: toolCall.id,
           input: args,
           agentRunId: ctx.agentRun?.id,
@@ -217,8 +274,41 @@ export async function executeToolCall(
         });
         return pendingImageRunResult(run);
       }
+      case ToolName.SpawnAgent: {
+        const args = SpawnAgentArgsSchema.parse(parseArgs(toolCall.arguments));
+        const control = requireSubagentControl(tool, ctx);
+        if (!("spawn" in control)) return control;
+        return control.spawn(args);
+      }
+      case ToolName.WaitAgent: {
+        const args = WaitAgentArgsSchema.parse(parseArgs(toolCall.arguments));
+        const control = requireSubagentControl(tool, ctx);
+        if (!("wait" in control)) return control;
+        return control.wait(args, ctx.signal);
+      }
+      case ToolName.SendMessage: {
+        const args = SendMessageArgsSchema.parse(parseArgs(toolCall.arguments));
+        const control = requireSubagentControl(tool, ctx);
+        if (!("sendMessage" in control)) return control;
+        return control.sendMessage(args);
+      }
+      case ToolName.FollowupTask: {
+        const args = FollowupTaskArgsSchema.parse(parseArgs(toolCall.arguments));
+        const control = requireSubagentControl(tool, ctx);
+        if (!("followupTask" in control)) return control;
+        return control.followupTask(args);
+      }
+      case ToolName.InterruptAgent: {
+        const args = InterruptAgentArgsSchema.parse(parseArgs(toolCall.arguments));
+        const control = requireSubagentControl(tool, ctx);
+        if (!("interrupt" in control)) return control;
+        return control.interrupt(args);
+      }
     }
   } catch (error) {
+    if (ctx.signal?.aborted) {
+      throw ctx.signal.reason ?? error;
+    }
     if (error instanceof z.ZodError || error instanceof SyntaxError) {
       return errorResult(tool, ToolExecutionErrorCode.BadArgs, error instanceof Error ? error.message : String(error));
     }

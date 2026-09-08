@@ -2,6 +2,7 @@ import { z } from "zod";
 import { GenerateImageInputImageSource, ImageAspectRatio } from "./image";
 import { GitCommitInputSchema, GitLogInputSchema } from "./browserGitRepository";
 import { ProjectRevisionSchema } from "./projectRevision";
+import { SubagentProfileId } from "./subagent";
 import {
   containsUnicodeLineTerminator,
   countUnicodeCodePoints,
@@ -98,6 +99,35 @@ export const GenerateImageItemSchema = z.object({
 
 export const GenerateImageArgsSchema = z.object({
   images: z.array(GenerateImageItemSchema).min(1).max(4),
+}).strict();
+
+const NonBlankToolMessageSchema = z.string()
+  .min(1)
+  .refine((value) => value.trim().length > 0, {
+    message: "message must contain non-whitespace text",
+  });
+
+export const SpawnAgentArgsSchema = z.object({
+  message: NonBlankToolMessageSchema,
+  profile: z.literal(SubagentProfileId.Explorer),
+}).strict();
+
+export const WaitAgentArgsSchema = z.object({
+  target: z.string().uuid(),
+}).strict();
+
+export const SendMessageArgsSchema = z.object({
+  target: z.string().uuid(),
+  message: NonBlankToolMessageSchema,
+}).strict();
+
+export const FollowupTaskArgsSchema = z.object({
+  target: z.string().uuid(),
+  message: NonBlankToolMessageSchema,
+}).strict();
+
+export const InterruptAgentArgsSchema = z.object({
+  target: z.string().uuid(),
 }).strict();
 
 export const ToolResultSchema = z.discriminatedUnion("type", [

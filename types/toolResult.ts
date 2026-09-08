@@ -27,6 +27,10 @@ import {
   ProjectRepositoryErrorCode,
   ProjectTextSearchMatchSchema,
 } from "./projectRepository";
+import {
+  SubagentTaskStatus,
+  SubagentTaskStatusSchema,
+} from "./subagent";
 import { LegacyPreviewResultSchema } from "./transcript";
 import { ToolName, ToolResultType } from "./tool";
 import { ToolResultSchema } from "./toolSchema";
@@ -168,6 +172,14 @@ const CurrentGenerateImageErrorCode = {
   InternalError: ToolExecutionErrorCode.InternalError,
 } as const;
 
+const CurrentSubagentControlErrorCode = {
+  BadArgs: ToolExecutionErrorCode.BadArgs,
+  NotFound: ToolExecutionErrorCode.NotFound,
+  Conflict: ToolExecutionErrorCode.Conflict,
+  Unsupported: ToolExecutionErrorCode.Unsupported,
+  InternalError: ToolExecutionErrorCode.InternalError,
+} as const;
+
 const LegacyReplyErrorCode = {
   BadArgs: ClientToolErrorCode.BadArgs,
   InternalError: ProjectRepositoryErrorCode.InternalError,
@@ -241,6 +253,121 @@ export const GenerateImageTerminalResultSchema = z.union([
     result: GenerateImageFailedRunResultSchema,
   }).strict(),
 ]);
+
+export const SpawnAgentResultSchema = z.object({
+  status: z.literal("ok"),
+  tool: z.literal(ToolName.SpawnAgent),
+  agentId: z.string().uuid(),
+  taskStatus: z.literal(SubagentTaskStatus.Running),
+}).strict();
+
+const WaitAgentTerminalTaskStatusSchema = z.union([
+  z.literal(SubagentTaskStatus.Completed),
+  z.literal(SubagentTaskStatus.Failed),
+  z.literal(SubagentTaskStatus.Interrupted),
+]);
+
+export const WaitAgentResultSchema = z.object({
+  status: z.literal("ok"),
+  tool: z.literal(ToolName.WaitAgent),
+  agentId: z.string().uuid(),
+  taskStatus: WaitAgentTerminalTaskStatusSchema,
+  output: z.string().optional(),
+  error: z.string().optional(),
+}).strict().superRefine((result, context) => {
+  const hasOutput = Object.prototype.hasOwnProperty.call(result, "output");
+  const hasError = Object.prototype.hasOwnProperty.call(result, "error");
+
+  if (result.taskStatus === SubagentTaskStatus.Completed) {
+    if (!hasOutput) {
+      context.addIssue({
+        code: "custom",
+        path: ["output"],
+        message: "completed wait result must contain output",
+      });
+    }
+    if (hasError) {
+      context.addIssue({
+        code: "custom",
+        path: ["error"],
+        message: "completed wait result must not contain error",
+      });
+    }
+    return;
+  }
+
+  if (result.taskStatus === SubagentTaskStatus.Failed) {
+    if (!hasError) {
+      context.addIssue({
+        code: "custom",
+        path: ["error"],
+        message: "failed wait result must contain error",
+      });
+    }
+    if (hasOutput) {
+      context.addIssue({
+        code: "custom",
+        path: ["output"],
+        message: "failed wait result must not contain output",
+      });
+    }
+    return;
+  }
+
+  if (hasOutput) {
+    context.addIssue({
+      code: "custom",
+      path: ["output"],
+      message: "interrupted wait result must not contain output",
+    });
+  }
+  if (hasError) {
+    context.addIssue({
+      code: "custom",
+      path: ["error"],
+      message: "interrupted wait result must not contain error",
+    });
+  }
+});
+
+export const SendMessageResultSchema = z.object({
+  status: z.literal("ok"),
+  tool: z.literal(ToolName.SendMessage),
+  agentId: z.string().uuid(),
+  accepted: z.literal(true),
+}).strict();
+
+export const FollowupTaskResultSchema = z.object({
+  status: z.literal("ok"),
+  tool: z.literal(ToolName.FollowupTask),
+  agentId: z.string().uuid(),
+  accepted: z.literal(true),
+}).strict();
+
+export const InterruptAgentResultSchema = z.object({
+  status: z.literal("ok"),
+  tool: z.literal(ToolName.InterruptAgent),
+  agentId: z.string().uuid(),
+  previousTaskStatus: SubagentTaskStatusSchema,
+  currentTaskStatus: SubagentTaskStatusSchema,
+}).strict().superRefine((result, context) => {
+  const expectedCurrent = result.previousTaskStatus === SubagentTaskStatus.Running
+    ? SubagentTaskStatus.Interrupted
+    : result.previousTaskStatus;
+  if (result.currentTaskStatus !== expectedCurrent) {
+    context.addIssue({
+      code: "custom",
+      path: ["currentTaskStatus"],
+      message: "interrupt status transition does not match the runtime contract",
+    });
+  }
+});
+
+export type SpawnAgentResult = z.infer<typeof SpawnAgentResultSchema>;
+export type WaitAgentResult = z.infer<typeof WaitAgentResultSchema>;
+export type SendMessageResult = z.infer<typeof SendMessageResultSchema>;
+export type FollowupTaskResult = z.infer<typeof FollowupTaskResultSchema>;
+export type InterruptAgentResult = z.infer<typeof InterruptAgentResultSchema>;
 
 const LegacyToolName = {
   Reply: "reply",
@@ -316,6 +443,11 @@ const CurrentResultSchemaByToolName: Readonly<
   [ToolName.InspectAttachment]: InspectAttachmentResultSchema,
   [ToolName.InspectFigmaDesign]: FigmaDesignContextSchema,
   [ToolName.GenerateImage]: GenerateImageTerminalResultSchema,
+  [ToolName.SpawnAgent]: SpawnAgentResultSchema,
+  [ToolName.WaitAgent]: WaitAgentResultSchema,
+  [ToolName.SendMessage]: SendMessageResultSchema,
+  [ToolName.FollowupTask]: FollowupTaskResultSchema,
+  [ToolName.InterruptAgent]: InterruptAgentResultSchema,
 };
 
 const CurrentGenericErrorCodeSchemaByToolName: Readonly<
@@ -341,6 +473,11 @@ const CurrentGenericErrorCodeSchemaByToolName: Readonly<
     CurrentInspectFigmaDesignErrorCode,
   ),
   [ToolName.GenerateImage]: z.enum(CurrentGenerateImageErrorCode),
+  [ToolName.SpawnAgent]: z.enum(CurrentSubagentControlErrorCode),
+  [ToolName.WaitAgent]: z.enum(CurrentSubagentControlErrorCode),
+  [ToolName.SendMessage]: z.enum(CurrentSubagentControlErrorCode),
+  [ToolName.FollowupTask]: z.enum(CurrentSubagentControlErrorCode),
+  [ToolName.InterruptAgent]: z.enum(CurrentSubagentControlErrorCode),
 };
 
 const LegacySuccessSchemaByToolName: Readonly<

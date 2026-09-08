@@ -47,7 +47,7 @@ export function agentHarnessFor(
 ) {
   const systemPrompt = systemPromptForLocale(locale, storageKind);
   const repositoryCapability = repositoryCapabilityPromptForStorageKind(storageKind);
-  const tools = toolsForStorageKind(storageKind);
+  const tools = toolsForStorageKind(storageKind, selection.toolset.version);
   const request = AGENT_MODEL_REQUEST_CONFIG;
   const identity = resolveAgentHarnessIdentity({
     locale,

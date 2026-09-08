@@ -23,6 +23,7 @@ export default function ChatSidebar({
       <ChatPanel
         messages={messages}
         projectId={projectId}
+        scrollContextKey={projectId ?? "unbound-project"}
         onSend={onSend}
         onResume={onResume}
         onStop={onStop}

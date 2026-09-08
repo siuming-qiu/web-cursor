@@ -5,7 +5,9 @@
  * [PROTOCOL]: 新增/修改工具先改这里，再同步 types/toolSchema.ts 和 executor.ts
  */
 import "server-only";
+import { AgentHarnessToolsetProfileVersion } from "@/types/agentHarness";
 import { ProjectStorageKind, type ProjectStorageKind as ProjectStorageKindValue } from "@/types/projectStorage";
+import { SubagentProfileId } from "@/types/subagent";
 import { SearchTextLimits, ToolName } from "@/types/tool";
 
 const baseToolDefinitions = [
@@ -360,7 +362,122 @@ const browserGitToolDefinitions = [
   },
 ] as const;
 
-export function toolDefinitionsForStorageKind(storageKind: ProjectStorageKindValue) {
+const subagentControlToolDefinitions = [
+  {
+    name: ToolName.SpawnAgent,
+    description:
+      "启动一个后台 Child Agent 执行边界清晰的只读探索任务，并立即返回 agentId，不等待任务完成。首版后台 Child 只支持 Database repository；BrowserGit Parent 也能看到本工具，但调用会明确返回 UNSUPPORTED，不会退化为共享写入。",
+    parameters: {
+      type: "object",
+      properties: {
+        message: {
+          type: "string",
+          minLength: 1,
+          pattern: "\\S",
+          description: "交给 Child Agent 的完整任务说明，必须包含非空白文本。",
+        },
+        profile: {
+          type: "string",
+          enum: [SubagentProfileId.Explorer],
+          description: "Child Agent Profile。首版只支持 explorer。",
+        },
+      },
+      required: ["message", "profile"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: ToolName.WaitAgent,
+    description:
+      "等待指定 Child Agent 进入 completed、failed 或 interrupted 终态，并返回其终态结果。只接受 spawn_agent 返回的 agentId。",
+    parameters: {
+      type: "object",
+      properties: {
+        target: {
+          type: "string",
+          format: "uuid",
+          description: "spawn_agent 返回的 Child Agent id。",
+        },
+      },
+      required: ["target"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: ToolName.SendMessage,
+    description:
+      "向正在运行的 Child Agent 投递补充消息。消息会在安全边界被读取，但不会主动触发一个已经空闲或完成的 Child 开始新一轮。",
+    parameters: {
+      type: "object",
+      properties: {
+        target: {
+          type: "string",
+          format: "uuid",
+          description: "spawn_agent 返回的 Child Agent id。",
+        },
+        message: {
+          type: "string",
+          minLength: 1,
+          pattern: "\\S",
+          description: "要补充给 Child Agent 的非空白消息。",
+        },
+      },
+      required: ["target", "message"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: ToolName.FollowupTask,
+    description:
+      "向正在运行的 Child Agent 投递带 triggerTurn 语义的后续任务，并在下一个安全边界交付。第一版不重启已经 completed、failed 或 interrupted 的 Child；终态目标会明确返回 CONFLICT。",
+    parameters: {
+      type: "object",
+      properties: {
+        target: {
+          type: "string",
+          format: "uuid",
+          description: "spawn_agent 返回的 Child Agent id。",
+        },
+        message: {
+          type: "string",
+          minLength: 1,
+          pattern: "\\S",
+          description: "要交给 Child Agent 的非空白后续任务。",
+        },
+      },
+      required: ["target", "message"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: ToolName.InterruptAgent,
+    description:
+      "中断指定 Child Agent 的当前执行。该操作通过目标任务自己的 AbortController 生效，并返回中断前后的明确状态。",
+    parameters: {
+      type: "object",
+      properties: {
+        target: {
+          type: "string",
+          format: "uuid",
+          description: "spawn_agent 返回的 Child Agent id。",
+        },
+      },
+      required: ["target"],
+      additionalProperties: false,
+    },
+  },
+] as const;
+
+export class AgentToolsetVersionError extends Error {
+  constructor(readonly version: number) {
+    super(`Unknown agent toolset version: ${version}`);
+    this.name = "AgentToolsetVersionError";
+  }
+}
+
+function repositoryToolDefinitionsForStorageKind(
+  storageKind: ProjectStorageKindValue,
+) {
   switch (storageKind) {
     case ProjectStorageKind.Database:
       return [...baseToolDefinitions];
@@ -369,8 +486,26 @@ export function toolDefinitionsForStorageKind(storageKind: ProjectStorageKindVal
   }
 }
 
-export function toolsForStorageKind(storageKind: ProjectStorageKindValue) {
-  return toolDefinitionsForStorageKind(storageKind).map((tool) => ({
+export function toolDefinitionsForStorageKind(
+  storageKind: ProjectStorageKindValue,
+  toolsetVersion: number,
+) {
+  const repositoryTools = repositoryToolDefinitionsForStorageKind(storageKind);
+  switch (toolsetVersion) {
+    case AgentHarnessToolsetProfileVersion.V1:
+      return repositoryTools;
+    case AgentHarnessToolsetProfileVersion.V2:
+      return [...repositoryTools, ...subagentControlToolDefinitions];
+    default:
+      throw new AgentToolsetVersionError(toolsetVersion);
+  }
+}
+
+export function toolsForStorageKind(
+  storageKind: ProjectStorageKindValue,
+  toolsetVersion: number,
+) {
+  return toolDefinitionsForStorageKind(storageKind, toolsetVersion).map((tool) => ({
     type: "function" as const,
     function: tool,
   }));

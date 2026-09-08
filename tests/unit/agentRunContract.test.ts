@@ -24,6 +24,12 @@ import {
   ChatEventType,
   ContextCompactionPhase,
 } from "../../types/chat";
+import {
+  SubagentActivityKind,
+  SubagentFailureCode,
+  SubagentProfileId,
+  SubagentTaskStatus,
+} from "../../types/subagent";
 
 const statuses = Object.values(AgentRunStatus);
 
@@ -252,5 +258,125 @@ describe("Context compaction SSE contract", () => {
       phase: ContextCompactionPhase.Started,
       percent: 50,
     }).success).toBe(false);
+  });
+});
+
+describe("Sub-agent activity SSE contract", () => {
+  const agentId = "11111111-1111-4111-8111-111111111111";
+  const identity = {
+    agentRunId: snapshot.id,
+    attempt: snapshot.attempt,
+    type: ChatEventType.SubagentActivity,
+  } as const;
+
+  it("accepts the explicit public activity union", () => {
+    const activities = [
+      {
+        kind: SubagentActivityKind.Started,
+        agentId,
+        profileId: SubagentProfileId.Explorer,
+        task: "Inspect project state handling",
+      },
+      {
+        kind: SubagentActivityKind.ToolStarted,
+        agentId,
+        toolCallId: "call-1",
+        toolName: "search_text",
+      },
+      { kind: SubagentActivityKind.ModelOutput, agentId },
+      { kind: SubagentActivityKind.ModelStarted, agentId, round: 1 },
+      { kind: SubagentActivityKind.ToolFinished, agentId, toolCallId: "call-1", status: "ok" },
+      {
+        kind: SubagentActivityKind.Snapshot,
+        agentId,
+        profileId: SubagentProfileId.Explorer,
+        task: "Inspect project state handling",
+        status: SubagentTaskStatus.Running,
+        progress: [{ kind: SubagentActivityKind.ModelStarted, round: 1 }],
+      },
+      {
+        kind: SubagentActivityKind.StatusChanged,
+        agentId,
+        status: SubagentTaskStatus.Completed,
+      },
+    ] as const;
+
+    for (const activity of activities) {
+      expect(ChatEventSchema.parse({ ...identity, activity }))
+        .toMatchObject({ activity });
+    }
+  });
+
+  it("rejects unknown identities, enum values, fields, and blank task/tool data", () => {
+    const started = {
+      kind: SubagentActivityKind.Started,
+      agentId,
+      profileId: SubagentProfileId.Explorer,
+      task: "Inspect project state handling",
+    } as const;
+    const invalidActivities = [
+      { ...started, agentId: "not-a-uuid" },
+      { ...started, profileId: "guessed-profile" },
+      { ...started, task: "   " },
+      { ...started, ownerId: snapshot.id },
+      {
+        kind: SubagentActivityKind.ToolStarted,
+        agentId,
+        toolCallId: "   ",
+        toolName: "search_text",
+      },
+      {
+        kind: SubagentActivityKind.ToolStarted,
+        agentId,
+        toolCallId: "call-1",
+        toolName: "   ",
+      },
+      {
+        kind: SubagentActivityKind.StatusChanged,
+        agentId,
+        status: "queued",
+      },
+      {
+        kind: "transcript_appended",
+        agentId,
+        transcript: "private child transcript",
+      },
+    ];
+
+    for (const activity of invalidActivities) {
+      expect(
+        ChatEventSchema.safeParse({ ...identity, activity }).success,
+        JSON.stringify(activity),
+      ).toBe(false);
+    }
+  });
+
+  it("requires safe diagnostic failures only on failed states, including reconnect snapshots", () => {
+    const failure = {
+      code: SubagentFailureCode.ModelRequestFailed,
+      message: "Sub-agent model request failed. Check the server logs for details.",
+    };
+    const bases = [
+      { kind: SubagentActivityKind.StatusChanged, agentId },
+      {
+        kind: SubagentActivityKind.Snapshot,
+        agentId,
+        profileId: SubagentProfileId.Explorer,
+        task: "Inspect project state handling",
+        progress: [],
+      },
+    ];
+    for (const base of bases) {
+      const failed = { ...base, status: SubagentTaskStatus.Failed, failure };
+      expect(ChatEventSchema.safeParse({ ...identity, activity: failed }).success).toBe(true);
+      for (const invalid of [
+        { ...base, status: SubagentTaskStatus.Failed },
+        { ...failed, status: SubagentTaskStatus.Completed },
+        { ...failed, failure: { ...failure, code: "unknown" } },
+        { ...failed, failure: { ...failure, message: "provider raw credential" } },
+      ]) {
+        expect(ChatEventSchema.safeParse({ ...identity, activity: invalid }).success).toBe(false);
+      }
+    }
   });
 });

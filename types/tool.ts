@@ -17,6 +17,11 @@ export const ToolName = {
   InspectAttachment: "inspect_attachment",
   InspectFigmaDesign: "inspect_figma_design",
   GenerateImage: "generate_image",
+  SpawnAgent: "spawn_agent",
+  WaitAgent: "wait_agent",
+  SendMessage: "send_message",
+  FollowupTask: "followup_task",
+  InterruptAgent: "interrupt_agent",
 } as const;
 
 export type ToolName = typeof ToolName[keyof typeof ToolName];

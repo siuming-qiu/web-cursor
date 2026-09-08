@@ -3,7 +3,7 @@
  * [OUTPUT]: 聊天状态以及 send/resume/stop/openConversation/finishConversationRestore actions
  * [POS]: B 域 AgentRun transport 与客户端工具编排 owner
  * [PROTOCOL]: 持久 Stop 先于 transport abort/导航；每个 SSE transport 固定 run identity；
- *   client side effect 先 start invocation，刷新后的 client boundary 只通过显式 recover POST 接管
+ *   client side effect 先 start invocation；Child 执行状态与 SSE 观察连接分开，快照复用原消息卡片
  */
 "use client";
 
@@ -19,9 +19,16 @@ import {
   stopAgentRunRequest,
   streamChat,
 } from "@/lib/chatClient";
-import { useConversationStore } from "@/lib/conversationStore";
-import { AiTimelineItemKind } from "@/lib/types";
-import type { AgentFileChange, AiTimelineItem, ImageRunView, Message, SendAttachment, Status } from "@/lib/types";
+import {
+  AgentActivitySource,
+  useConversationStore,
+} from "@/lib/conversationStore";
+import {
+  AiTimelineItemKind,
+  SubagentActivityViewKind,
+  SubagentObservationStatus,
+} from "@/lib/types";
+import type { AgentFileChange, AiTimelineItem, ImageRunView, Message, SendAttachment, Status, SubagentActivityView, SubagentRunView } from "@/lib/types";
 import type { ProjectFileSummary } from "@/lib/projectTypes";
 import {
   ChatEventType,
@@ -42,6 +49,12 @@ import { ImageJobStatus, ImageRunStatus } from "@/types/image";
 import { isIntegrationCardMeta } from "@/types/integration";
 import { ToolName, ToolResultType, type ToolResult } from "@/types/tool";
 import { AttachmentSummarySchema } from "@/types/attachment";
+import {
+  SubagentActivityKind,
+  SubagentTaskStatus,
+  type SubagentActivity,
+  type SubagentProgress,
+} from "@/types/subagent";
 import {
   ProjectRepositoryDescriptorSchema,
   type ProjectRepositoryDescriptor,
@@ -81,6 +94,100 @@ type AgentRunIdentity = {
   runId: string;
   attempt: number;
 };
+
+type SubagentProtocolRecord = {
+  parentRunId: string;
+  messageId: string;
+  view: SubagentRunView;
+};
+
+function applySubagentProgress(
+  activities: SubagentActivityView[],
+  progress: SubagentProgress,
+): SubagentActivityView[] {
+  if (progress.kind === SubagentActivityKind.ToolFinished) {
+    const tool = activities.find((item) => (
+      item.kind === SubagentActivityViewKind.ToolStarted
+      && item.toolCallId === progress.toolCallId
+    ));
+    if (!tool || tool.kind !== SubagentActivityViewKind.ToolStarted) {
+      throw new Error(`PROTOCOL_VIOLATION: Sub-agent tool ${progress.toolCallId} finished before it started.`);
+    }
+    if (tool.result && tool.result !== progress.status) {
+      throw new Error(`PROTOCOL_VIOLATION: Sub-agent tool ${progress.toolCallId} changed its result.`);
+    }
+    return activities.map((item) => item === tool ? { ...tool, result: progress.status } : item);
+  }
+  if (progress.kind === SubagentActivityKind.ToolStarted) {
+    const existing = activities.find((item) => (
+      item.kind === SubagentActivityViewKind.ToolStarted
+      && item.toolCallId === progress.toolCallId
+    ));
+    if (existing?.kind === SubagentActivityViewKind.ToolStarted) {
+      if (existing.toolName !== progress.toolName || existing.detail !== progress.detail) {
+        throw new Error(`PROTOCOL_VIOLATION: Sub-agent tool ${progress.toolCallId} changed its identity.`);
+      }
+      return activities;
+    }
+    return [...activities, {
+      id: `subagent-tool-${progress.toolCallId}`,
+      kind: SubagentActivityViewKind.ToolStarted,
+      toolCallId: progress.toolCallId,
+      toolName: progress.toolName,
+      detail: progress.detail,
+    }];
+  }
+  if (progress.kind === SubagentActivityKind.ModelStarted) {
+    const id = `subagent-model-${progress.round}`;
+    if (activities.some((item) => item.id === id)) return activities;
+    return [...activities, { id, kind: SubagentActivityViewKind.ModelStarted, round: progress.round }];
+  }
+  return [...activities, {
+    id: `subagent-output-${activities.length}`,
+    kind: SubagentActivityViewKind.ModelOutput,
+  }];
+}
+
+function createSubagentView(
+  activity: Extract<SubagentActivity, {
+    kind: typeof SubagentActivityKind.Started | typeof SubagentActivityKind.Snapshot;
+  }>,
+  transportId: string,
+): SubagentRunView {
+  const initial: SubagentActivityView[] = [{
+    id: `subagent-started-${activity.agentId}`,
+    kind: SubagentActivityViewKind.Started,
+  }];
+  const snapshot = activity.kind === SubagentActivityKind.Snapshot ? activity : null;
+  return {
+    agentId: activity.agentId,
+    profileId: activity.profileId,
+    task: activity.task,
+    status: snapshot ? snapshot.status : SubagentTaskStatus.Running,
+    failure: snapshot?.failure,
+    observation: { transportId, status: SubagentObservationStatus.Live },
+    activities: snapshot ? snapshot.progress.reduce(applySubagentProgress, initial) : initial,
+  };
+}
+
+function advanceSubagentView(
+  view: SubagentRunView,
+  activity: Exclude<SubagentActivity, {
+    kind: typeof SubagentActivityKind.Started | typeof SubagentActivityKind.Snapshot;
+  }>,
+): SubagentRunView {
+  if (view.status !== SubagentTaskStatus.Running) {
+    if (activity.kind === SubagentActivityKind.StatusChanged && view.status === activity.status
+      && view.failure?.code === activity.failure?.code) {
+      return view;
+    }
+    throw new Error(`PROTOCOL_VIOLATION: Sub-agent ${view.agentId} emitted activity after ${view.status}.`);
+  }
+  if (activity.kind === SubagentActivityKind.StatusChanged) {
+    return { ...view, status: activity.status, failure: activity.failure };
+  }
+  return { ...view, activities: applySubagentProgress(view.activities, activity) };
+}
 
 type StopRequest = {
   controller: AbortController | null;
@@ -254,8 +361,11 @@ function runFailureError(run: AgentRunSnapshot): Error {
   return new Error(`PROTOCOL_VIOLATION: AgentRun ${run.id} is ${run.status} without failure details.`);
 }
 
-function setAgentActivity(text: string) {
-  useConversationStore.getState().setActivity(text);
+function setAgentActivity(
+  source: AgentActivitySource,
+  text: string,
+) {
+  useConversationStore.getState().setActivity(source, text);
 }
 
 function finishAgentTurn() {
@@ -295,6 +405,8 @@ export function useChat(deps: UseChatDeps) {
   const projectIdRef = useRef<string | undefined>(undefined);
   const convIdRef = useRef<string | undefined>(undefined);
   const timelineOrderRef = useRef(0);
+  // Last accepted server projection for synchronous protocol checks. Disconnect only changes UI observation.
+  const subagentProtocolRef = useRef(new Map<string, SubagentProtocolRecord>());
   const clientToolResultCacheRef = useRef(new Map<string, Promise<ClientFileToolResult>>());
   const clientGitToolResultCacheRef = useRef(new Map<string, Promise<ClientGitToolResult>>());
 
@@ -405,6 +517,76 @@ export function useChat(deps: UseChatDeps) {
     }));
   }, [updateAi]);
 
+  const applySubagentActivity = useCallback((
+    ev: Extract<ChatEvent, { type: typeof ChatEventType.SubagentActivity }>,
+    observer: { messageId: string; transportId: string },
+  ) => {
+    const activity = ev.activity;
+    const existing = subagentProtocolRef.current.get(activity.agentId);
+    if (existing && existing.parentRunId !== ev.agentRunId) {
+      throw new Error(`PROTOCOL_VIOLATION: Sub-agent ${activity.agentId} changed its parent.`);
+    }
+    let view: SubagentRunView;
+    if (activity.kind === SubagentActivityKind.Started || activity.kind === SubagentActivityKind.Snapshot) {
+      if (existing && (existing.view.profileId !== activity.profileId || existing.view.task !== activity.task)) {
+        throw new Error(`PROTOCOL_VIOLATION: Sub-agent ${activity.agentId} changed its identity.`);
+      }
+      if (existing && activity.kind === SubagentActivityKind.Started) return;
+      if (existing && existing.view.status !== SubagentTaskStatus.Running
+        && activity.kind === SubagentActivityKind.Snapshot
+        && (existing.view.status !== activity.status || existing.view.failure?.code !== activity.failure?.code)) {
+        throw new Error(`PROTOCOL_VIOLATION: Sub-agent ${activity.agentId} changed its terminal state.`);
+      }
+      view = createSubagentView(activity, observer.transportId);
+    } else {
+      if (!existing) {
+        throw new Error(`PROTOCOL_VIOLATION: Sub-agent activity arrived before started or snapshot for ${activity.agentId}.`);
+      }
+      if (existing.view.observation.transportId !== observer.transportId) {
+        throw new Error(`PROTOCOL_VIOLATION: Sub-agent ${activity.agentId} must be resubscribed with a snapshot.`);
+      }
+      view = advanceSubagentView(existing.view, activity);
+    }
+    const messageId = existing?.messageId ?? observer.messageId;
+    subagentProtocolRef.current.set(activity.agentId, { parentRunId: ev.agentRunId, messageId, view });
+    const stamp = existing ? null : markTimeline();
+    setMessages((previous) => previous.map((message) => {
+      if (message.role !== "ai" || message.id !== messageId) return message;
+      const runs = message.subagentRuns ?? [];
+      return {
+        ...message,
+        subagentRuns: existing
+          ? runs.map((run) => run.agentId === view.agentId ? view : run)
+          : [...runs, view],
+        timeline: stamp ? appendTimelineItem(message.timeline, {
+          id: `subagent-run-${view.agentId}`,
+          kind: AiTimelineItemKind.SubagentRun,
+          agentId: view.agentId,
+          ...stamp,
+        }) : message.timeline,
+      };
+    }));
+  }, [markTimeline]);
+
+  const disconnectSubagentObservation = useCallback((transportId: string) => {
+    // Compare the captured transport, not curAiIdRef: a late close must not detach a new subscription.
+    setMessages((previous) => previous.map((message) => {
+      if (message.role !== "ai" || !message.subagentRuns?.some((run) => (
+        run.observation.transportId === transportId
+        && run.status === SubagentTaskStatus.Running
+        && run.observation.status === SubagentObservationStatus.Live
+      ))) return message;
+      return {
+        ...message,
+        subagentRuns: message.subagentRuns.map((run) => (
+          run.observation.transportId === transportId && run.status === SubagentTaskStatus.Running
+            ? { ...run, observation: { transportId, status: SubagentObservationStatus.Disconnected } }
+            : run
+        )),
+      };
+    }));
+  }, []);
+
   const detachCurrentTransport = useCallback(async () => {
     const pendingStop = stopRequestedRef.current;
     if (pendingStop) await pendingStop.settled;
@@ -414,6 +596,7 @@ export function useChat(deps: UseChatDeps) {
     activeRunIdentityRef.current = null;
     activeRunSnapshotRef.current = null;
     stopRequestedRef.current = null;
+    subagentProtocolRef.current.clear();
     deps.cancelPreview();
   }, [deps]);
 
@@ -491,7 +674,10 @@ export function useChat(deps: UseChatDeps) {
       curAiIdRef.current = lastAiMessage?.id ?? "";
       if (run && restoredBusy) {
         useConversationStore.getState().startTurn(curAiIdRef.current);
-        setAgentActivity(restoredRunActivity(run.status, t));
+        setAgentActivity(
+          AgentActivitySource.Parent,
+          restoredRunActivity(run.status, t),
+        );
       } else {
         finishAgentTurn();
       }
@@ -504,7 +690,10 @@ export function useChat(deps: UseChatDeps) {
 
   const restoreActivityAfterStopFailure = useCallback(() => {
     const run = activeRunSnapshotRef.current;
-    setAgentActivity(run ? restoredRunActivity(run.status, t) : t("runRunning"));
+    setAgentActivity(
+      AgentActivitySource.Parent,
+      run ? restoredRunActivity(run.status, t) : t("runRunning"),
+    );
   }, [t]);
 
   const applyTerminalStop = useCallback((
@@ -662,6 +851,7 @@ export function useChat(deps: UseChatDeps) {
       initialTurn?: ChatTurn,
     ) => {
       const signal = controller.signal;
+      const observerMessageId = curAiIdRef.current;
       const projectId = projectIdRef.current;
       let turn: ChatTurn = initialTurn ?? ChatTurnSchema.parse({
         kind: "user",
@@ -676,8 +866,8 @@ export function useChat(deps: UseChatDeps) {
       });
 
       setWriting(true);
-      deps.setPreviewStatus({ kind: "load", text: t("modifyingFiles") });
-      setAgentActivity(t("modifyingFiles"));
+      deps.setPreviewStatus({ kind: "load", text: t("processingRequest") });
+      setAgentActivity(AgentActivitySource.Parent, t("processingRequest"));
 
       let pendingFilesChanged = false;
       let pendingShouldRunPreview = false;
@@ -691,235 +881,287 @@ export function useChat(deps: UseChatDeps) {
         let transportIdentity: AgentRunIdentity | null = null;
         let latestRun: AgentRunSnapshot | null = null;
         let doneReceived = false;
+        const observer = { messageId: observerMessageId, transportId: crypto.randomUUID() };
+        const disconnectObservation = () => disconnectSubagentObservation(observer.transportId);
+        signal.addEventListener("abort", disconnectObservation, { once: true });
 
-        for await (const ev of streamChat(currentTurn, locale, signal)) {
-          if (signal.aborted) return { filesChanged, clientToolCalls, aborted: true };
-          if (doneReceived) {
-            throw new Error("PROTOCOL_VIOLATION: SSE transport emitted an event after done.");
-          }
-
-          const eventIdentity = {
-            runId: ev.agentRunId,
-            attempt: ev.attempt,
-          };
-          if (!transportIdentity) {
-            if (currentTurn.kind !== "user") {
-              if (eventIdentity.runId !== currentTurn.runId) {
-                throw new Error(
-                  `PROTOCOL_VIOLATION: transport returned run ${eventIdentity.runId}, expected ${currentTurn.runId}.`,
-                );
-              }
-              if (eventIdentity.attempt !== currentTurn.attempt + 1) {
-                throw new Error(
-                  `PROTOCOL_VIOLATION: transport attempt ${eventIdentity.attempt} must follow ${currentTurn.attempt}.`,
-                );
-              }
+        try {
+          for await (const ev of streamChat(currentTurn, locale, signal)) {
+            if (signal.aborted) return { filesChanged, clientToolCalls, aborted: true };
+            if (doneReceived) {
+              throw new Error("PROTOCOL_VIOLATION: SSE transport emitted an event after done.");
             }
-            transportIdentity = eventIdentity;
-            activeRunIdentityRef.current = eventIdentity;
-          } else if (
-            eventIdentity.runId !== transportIdentity.runId
-            || eventIdentity.attempt !== transportIdentity.attempt
-          ) {
-            throw new Error("PROTOCOL_VIOLATION: SSE transport changed AgentRun identity.");
-          }
 
-          const pendingStop = stopRequestedRef.current;
-          if (
-            pendingStop?.controller === controller
-            && pendingStop.runId
-            && await stopRequestedForTransport(controller, transportIdentity)
-          ) {
-            return { filesChanged, clientToolCalls, aborted: true };
-          }
-
-          if (ev.type === ChatEventType.Init) {
-            const repository = ProjectRepositoryDescriptorSchema.parse(ev.repository);
-            projectIdRef.current = repository.projectId;
-            convIdRef.current = ev.conversationId;
-            setCurrentProjectId(repository.projectId);
-            setCurrentConversationId(ev.conversationId);
-            deps.onProjectInitialized({
-              repository,
-              conversationId: ev.conversationId,
-            });
-          } else if (ev.type === ChatEventType.RunState) {
-            if (
-              currentTurn.kind === "user"
-              && ev.run.requestId !== currentTurn.requestId
+            const eventIdentity = {
+              runId: ev.agentRunId,
+              attempt: ev.attempt,
+            };
+            if (!transportIdentity) {
+              if (currentTurn.kind !== "user") {
+                if (eventIdentity.runId !== currentTurn.runId) {
+                  throw new Error(
+                    `PROTOCOL_VIOLATION: transport returned run ${eventIdentity.runId}, expected ${currentTurn.runId}.`,
+                  );
+                }
+                if (eventIdentity.attempt !== currentTurn.attempt + 1) {
+                  throw new Error(
+                    `PROTOCOL_VIOLATION: transport attempt ${eventIdentity.attempt} must follow ${currentTurn.attempt}.`,
+                  );
+                }
+              }
+              transportIdentity = eventIdentity;
+              activeRunIdentityRef.current = eventIdentity;
+            } else if (
+              eventIdentity.runId !== transportIdentity.runId
+              || eventIdentity.attempt !== transportIdentity.attempt
             ) {
-              throw new Error(
-                `PROTOCOL_VIOLATION: AgentRun ${ev.run.id} requestId does not match the user turn.`,
-              );
+              throw new Error("PROTOCOL_VIOLATION: SSE transport changed AgentRun identity.");
             }
-            latestRun = ev.run;
-            activeRunSnapshotRef.current = ev.run;
-          } else if (ev.type === ChatEventType.ContextCompaction) {
-            const id = `context-compaction-${ev.agentRunId}-${ev.attempt}`;
-            const stamp = markTimeline();
-            updateAi((m) => {
-              const timeline = m.timeline ?? [];
-              const existing = timeline.findIndex((item) => item.id === id);
-              if (existing < 0) {
+
+            const pendingStop = stopRequestedRef.current;
+            if (
+              pendingStop?.controller === controller
+              && pendingStop.runId
+              && await stopRequestedForTransport(controller, transportIdentity)
+            ) {
+              return { filesChanged, clientToolCalls, aborted: true };
+            }
+
+            if (ev.type === ChatEventType.Init) {
+              const repository = ProjectRepositoryDescriptorSchema.parse(ev.repository);
+              projectIdRef.current = repository.projectId;
+              convIdRef.current = ev.conversationId;
+              setCurrentProjectId(repository.projectId);
+              setCurrentConversationId(ev.conversationId);
+              deps.onProjectInitialized({
+                repository,
+                conversationId: ev.conversationId,
+              });
+            } else if (ev.type === ChatEventType.RunState) {
+              if (
+                currentTurn.kind === "user"
+                && ev.run.requestId !== currentTurn.requestId
+              ) {
+                throw new Error(
+                  `PROTOCOL_VIOLATION: AgentRun ${ev.run.id} requestId does not match the user turn.`,
+                );
+              }
+              latestRun = ev.run;
+              activeRunSnapshotRef.current = ev.run;
+            } else if (ev.type === ChatEventType.ContextCompaction) {
+              const id = `context-compaction-${ev.agentRunId}-${ev.attempt}`;
+              const stamp = markTimeline();
+              updateAi((m) => {
+                const timeline = m.timeline ?? [];
+                const existing = timeline.findIndex((item) => item.id === id);
+                if (existing < 0) {
+                  return {
+                    ...m,
+                    timeline: appendTimelineItem(timeline, {
+                      id,
+                      kind: AiTimelineItemKind.ContextCompaction,
+                      phase: ev.phase,
+                      ...stamp,
+                    }),
+                  };
+                }
                 return {
                   ...m,
+                  timeline: timeline.map((item, index) =>
+                    index === existing && item.kind === AiTimelineItemKind.ContextCompaction
+                      ? { ...item, phase: ev.phase }
+                      : item
+                  ),
+                };
+              });
+              setAgentActivity(
+                AgentActivitySource.Parent,
+                ev.phase === ContextCompactionPhase.Started
+                  ? t("contextCompactionStarted")
+                  : t("contextCompactionCompleted"),
+              );
+            } else if (ev.type === ChatEventType.SubagentActivity) {
+              applySubagentActivity(ev, observer);
+            } else if (ev.type === ChatEventType.ToolsCall) {
+              if (ev.name === ToolName.RunPreview) {
+                deps.setPreviewStatus({ kind: "load", text: t("runningPreview") });
+                setAgentActivity(AgentActivitySource.Parent, t("runningPreview"));
+              } else if (ev.name === ToolName.WriteFile || ev.name === ToolName.DeleteFile || ev.name === ToolName.RenameFile) {
+                deps.setPreviewStatus({ kind: "load", text: t("writingFiles") });
+                setAgentActivity(AgentActivitySource.Parent, t("writingFiles"));
+              } else if (
+                ev.name === ToolName.ListFiles
+                || ev.name === ToolName.SearchText
+                || ev.name === ToolName.ReadFile
+              ) {
+                deps.setPreviewStatus({ kind: "load", text: t("readingFiles") });
+                setAgentActivity(AgentActivitySource.Parent, t("readingFiles"));
+              } else if (ev.name === ToolName.SpawnAgent) {
+                deps.setPreviewStatus({ kind: "load", text: t("subagentStarting") });
+                setAgentActivity(AgentActivitySource.Subagent, t("subagentStarting"));
+              } else if (ev.name === ToolName.WaitAgent) {
+                deps.setPreviewStatus({ kind: "load", text: t("subagentWaiting") });
+                setAgentActivity(AgentActivitySource.Subagent, t("subagentWaiting"));
+              } else if (
+                ev.name === ToolName.SendMessage
+                || ev.name === ToolName.FollowupTask
+              ) {
+                deps.setPreviewStatus({ kind: "load", text: t("subagentMessaging") });
+                setAgentActivity(AgentActivitySource.Subagent, t("subagentMessaging"));
+              } else if (ev.name === ToolName.InterruptAgent) {
+                deps.setPreviewStatus({ kind: "load", text: t("subagentInterrupting") });
+                setAgentActivity(AgentActivitySource.Subagent, t("subagentInterrupting"));
+              }
+            } else if (ev.type === ChatEventType.ClientToolCalls) {
+              if (clientToolCalls.length > 0) {
+                throw new Error("PROTOCOL_VIOLATION: received more than one client tool boundary in a turn.");
+              }
+              clientToolCalls = ClientToolCallSchema.array().parse(ev.calls);
+              if (clientToolCalls.length === 0) {
+                throw new Error("PROTOCOL_VIOLATION: client tool boundary must contain at least one call.");
+              }
+              for (const call of clientToolCalls) {
+                if (
+                  call.agentRunId !== transportIdentity.runId
+                  || call.attempt !== transportIdentity.attempt
+                ) {
+                  throw new Error(
+                    "PROTOCOL_VIOLATION: client tool call identity does not match its SSE transport.",
+                  );
+                }
+              }
+            } else if (ev.type === ChatEventType.ToolResult) {
+              if (ev.status === "error") {
+                deps.setPreviewStatus({ kind: "err", text: t("toolFailed", { name: ev.name }) });
+                setAgentActivity(
+                  AgentActivitySource.Parent,
+                  t("toolFailedHandling", { name: ev.name }),
+                );
+              }
+            } else if (ev.type === ChatEventType.ToolPending) {
+              const stamp = markTimeline();
+              updateAi((m) => ({
+                ...m,
+                imageRuns: [
+                  ...(m.imageRuns ?? []),
+                  {
+                    runId: ev.runId,
+                    agentRunId: ev.agentRunId,
+                    toolCallId: ev.id,
+                    status: ImageRunStatus.Pending,
+                    resumeOnTerminal: true,
+                    jobs: ev.jobs.map((job) => ({
+                      id: job.jobId,
+                      status: ImageJobStatus.Pending,
+                      input: {
+                        label: job.label,
+                        prompt: job.prompt,
+                        aspectRatio: job.aspectRatio,
+                        inputImages: job.inputImages,
+                      },
+                    })),
+                  },
+                ],
+                timeline: appendTimelineItem(m.timeline, {
+                  id: `image-run-${ev.runId}`,
+                  kind: AiTimelineItemKind.ImageRun,
+                  runId: ev.runId,
+                  ...stamp,
+                }),
+              }));
+              deps.setPreviewStatus({ kind: "load", text: t("generatingImages") });
+              setAgentActivity(AgentActivitySource.Parent, t("generatingImages"));
+            } else if (ev.type === ChatEventType.FileWriteStream) {
+              appendFileWriteStream(ev, markTimeline());
+              deps.setPreviewStatus({ kind: "load", text: t("writingFiles") });
+              setAgentActivity(AgentActivitySource.Parent, t("writingFiles"));
+            } else if (ev.type === ChatEventType.FilesChanged) {
+              filesChanged = true;
+              if (ev.path && ev.operation) {
+                appendFileChange({ operation: ev.operation, path: ev.path, oldPath: ev.oldPath }, markTimeline());
+                deps.setPreviewStatus({ kind: "load", text: t("fileUpdated", { path: ev.path }) });
+                setAgentActivity(
+                  AgentActivitySource.Parent,
+                  t("fileUpdatedHandling", { path: ev.path }),
+                );
+                const handled = await deps.handlePersistedFileChange(ev);
+                if (handled) {
+                  shouldRunPreviewForFilesChanged ||= handled.shouldRunPreview;
+                  filesChangedProjectId = handled.projectId;
+                }
+              } else {
+                deps.setPreviewStatus({ kind: "load", text: t("filesUpdatedRefresh") });
+                setAgentActivity(AgentActivitySource.Parent, t("filesUpdatedPrepareRefresh"));
+                const projectId = projectIdRef.current;
+                if (projectId) {
+                  await deps.loadFiles(projectId, APP_ENTRY_PATH);
+                  shouldRunPreviewForFilesChanged = true;
+                  filesChangedProjectId = projectId;
+                }
+              }
+            } else if (ev.type === ChatEventType.Chat) {
+              const stamp = markTimeline();
+              const timelineItemId = `chat-${crypto.randomUUID()}`;
+              updateAi((m) => {
+                const previousText = m.chatText ?? "";
+                const nextText = previousText + ev.delta;
+                const timeline = m.timeline ?? [];
+                const lastItem = timeline.at(-1);
+                if (lastItem?.kind === AiTimelineItemKind.Chat) {
+                  if (lastItem.end !== previousText.length) {
+                    throw new Error(
+                      `PROTOCOL_VIOLATION: Chat timeline ended at ${lastItem.end}, expected ${previousText.length}.`,
+                    );
+                  }
+                  return {
+                    ...m,
+                    chatText: nextText,
+                    timeline: [
+                      ...timeline.slice(0, -1),
+                      { ...lastItem, end: nextText.length },
+                    ],
+                  };
+                }
+                return {
+                  ...m,
+                  chatText: nextText,
                   timeline: appendTimelineItem(timeline, {
-                    id,
-                    kind: AiTimelineItemKind.ContextCompaction,
-                    phase: ev.phase,
+                    id: timelineItemId,
+                    kind: AiTimelineItemKind.Chat,
+                    start: previousText.length,
+                    end: nextText.length,
                     ...stamp,
                   }),
                 };
+              });
+              setAgentActivity(AgentActivitySource.Parent, t("replying"));
+            } else if (ev.type === ChatEventType.IntegrationCard) {
+              updateAi((m) => ({ ...m, integrationCard: ev.meta }));
+              setAgentActivity(AgentActivitySource.Parent, t("waitingFigma"));
+            } else if (ev.type === ChatEventType.Title) {
+              const update = { conversationId: ev.conversationId, title: ev.title, projectTitle: ev.projectTitle };
+              setLastTitleUpdate(update);
+              deps.onTitleUpdate(update);
+            } else if (ev.type === ChatEventType.Error) {
+              throw new Error(ev.message);
+            } else if (ev.type === ChatEventType.Done) {
+              if (doneReceived) {
+                throw new Error("PROTOCOL_VIOLATION: SSE transport emitted duplicate done events.");
               }
-              return {
-                ...m,
-                timeline: timeline.map((item, index) =>
-                  index === existing && item.kind === AiTimelineItemKind.ContextCompaction
-                    ? { ...item, phase: ev.phase }
-                    : item
-                ),
-              };
-            });
-            setAgentActivity(
-              ev.phase === ContextCompactionPhase.Started
-                ? t("contextCompactionStarted")
-                : t("contextCompactionCompleted"),
-            );
-          } else if (ev.type === ChatEventType.ToolsCall) {
-            if (ev.name === ToolName.RunPreview) {
-              deps.setPreviewStatus({ kind: "load", text: t("runningPreview") });
-              setAgentActivity(t("runningPreview"));
-            } else if (ev.name === ToolName.WriteFile || ev.name === ToolName.DeleteFile || ev.name === ToolName.RenameFile) {
-              deps.setPreviewStatus({ kind: "load", text: t("writingFiles") });
-              setAgentActivity(t("writingFiles"));
-            } else if (
-              ev.name === ToolName.ListFiles
-              || ev.name === ToolName.SearchText
-              || ev.name === ToolName.ReadFile
-            ) {
-              deps.setPreviewStatus({ kind: "load", text: t("readingFiles") });
-              setAgentActivity(t("readingFiles"));
+              doneReceived = true;
+              disconnectObservation();
             }
-          } else if (ev.type === ChatEventType.ClientToolCalls) {
-            if (clientToolCalls.length > 0) {
-              throw new Error("PROTOCOL_VIOLATION: received more than one client tool boundary in a turn.");
-            }
-            clientToolCalls = ClientToolCallSchema.array().parse(ev.calls);
-            if (clientToolCalls.length === 0) {
-              throw new Error("PROTOCOL_VIOLATION: client tool boundary must contain at least one call.");
-            }
-            for (const call of clientToolCalls) {
-              if (
-                call.agentRunId !== transportIdentity.runId
-                || call.attempt !== transportIdentity.attempt
-              ) {
-                throw new Error(
-                  "PROTOCOL_VIOLATION: client tool call identity does not match its SSE transport.",
-                );
-              }
-            }
-          } else if (ev.type === ChatEventType.ToolResult) {
-            if (ev.status === "error") {
-              deps.setPreviewStatus({ kind: "err", text: t("toolFailed", { name: ev.name }) });
-              setAgentActivity(t("toolFailedHandling", { name: ev.name }));
-            }
-          } else if (ev.type === ChatEventType.ToolPending) {
-            const stamp = markTimeline();
-            updateAi((m) => ({
-              ...m,
-              imageRuns: [
-                ...(m.imageRuns ?? []),
-                {
-                  runId: ev.runId,
-                  agentRunId: ev.agentRunId,
-                  toolCallId: ev.id,
-                  status: ImageRunStatus.Pending,
-                  resumeOnTerminal: true,
-                  jobs: ev.jobs.map((job) => ({
-                    id: job.jobId,
-                    status: ImageJobStatus.Pending,
-                    input: {
-                      label: job.label,
-                      prompt: job.prompt,
-                      aspectRatio: job.aspectRatio,
-                      inputImages: job.inputImages,
-                    },
-                  })),
-                },
-              ],
-              timeline: appendTimelineItem(m.timeline, {
-                id: `image-run-${ev.runId}`,
-                kind: AiTimelineItemKind.ImageRun,
-                runId: ev.runId,
-                ...stamp,
-              }),
-            }));
-            deps.setPreviewStatus({ kind: "load", text: t("generatingImages") });
-            setAgentActivity(t("generatingImages"));
-          } else if (ev.type === ChatEventType.FileWriteStream) {
-            appendFileWriteStream(ev, markTimeline());
-            deps.setPreviewStatus({ kind: "load", text: t("writingFiles") });
-            setAgentActivity(t("writingFiles"));
-          } else if (ev.type === ChatEventType.FilesChanged) {
-            filesChanged = true;
-            if (ev.path && ev.operation) {
-              appendFileChange({ operation: ev.operation, path: ev.path, oldPath: ev.oldPath }, markTimeline());
-              deps.setPreviewStatus({ kind: "load", text: t("fileUpdated", { path: ev.path }) });
-              setAgentActivity(t("fileUpdatedHandling", { path: ev.path }));
-              const handled = await deps.handlePersistedFileChange(ev);
-              if (handled) {
-                shouldRunPreviewForFilesChanged ||= handled.shouldRunPreview;
-                filesChangedProjectId = handled.projectId;
-              }
-            } else {
-              deps.setPreviewStatus({ kind: "load", text: t("filesUpdatedRefresh") });
-              setAgentActivity(t("filesUpdatedPrepareRefresh"));
-              const projectId = projectIdRef.current;
-              if (projectId) {
-                await deps.loadFiles(projectId, APP_ENTRY_PATH);
-                shouldRunPreviewForFilesChanged = true;
-                filesChangedProjectId = projectId;
-              }
-            }
-          } else if (ev.type === ChatEventType.Chat) {
-            const stamp = markTimeline();
-            updateAi((m) => {
-              const hasChatTimelineItem = m.timeline?.some((item) => item.kind === AiTimelineItemKind.Chat);
-              return {
-                ...m,
-                chatText: (m.chatText ?? "") + ev.delta,
-                timeline: hasChatTimelineItem
-                  ? m.timeline
-                  : appendTimelineItem(m.timeline, {
-                      id: `chat-${m.id}`,
-                      kind: AiTimelineItemKind.Chat,
-                      ...stamp,
-                    }),
-              };
-            });
-            setAgentActivity(t("replying"));
-          } else if (ev.type === ChatEventType.IntegrationCard) {
-            updateAi((m) => ({ ...m, integrationCard: ev.meta }));
-            setAgentActivity(t("waitingFigma"));
-          } else if (ev.type === ChatEventType.Title) {
-            const update = { conversationId: ev.conversationId, title: ev.title, projectTitle: ev.projectTitle };
-            setLastTitleUpdate(update);
-            deps.onTitleUpdate(update);
-          } else if (ev.type === ChatEventType.Error) {
-            throw new Error(ev.message);
-          } else if (ev.type === ChatEventType.Done) {
-            if (doneReceived) {
-              throw new Error("PROTOCOL_VIOLATION: SSE transport emitted duplicate done events.");
-            }
-            doneReceived = true;
-          }
 
-          if (
-            stopRequestedRef.current?.controller === controller
-            && await stopRequestedForTransport(controller, transportIdentity)
-          ) {
-            return { filesChanged, clientToolCalls, aborted: true };
+            if (
+              stopRequestedRef.current?.controller === controller
+              && await stopRequestedForTransport(controller, transportIdentity)
+            ) {
+              return { filesChanged, clientToolCalls, aborted: true };
+            }
           }
+        } finally {
+          signal.removeEventListener("abort", disconnectObservation);
+          disconnectObservation();
         }
 
         if (!transportIdentity || !latestRun || !doneReceived) {
@@ -988,7 +1230,7 @@ export function useChat(deps: UseChatDeps) {
                 const feedback = preview
                   ?? interruptedPreviewResult(t("previewNoResult"));
                 deps.setPreviewStatus({ kind: "load", text: t("previewErrorFixing") });
-                setAgentActivity(t("previewErrorFixing"));
+                setAgentActivity(AgentActivitySource.Parent, t("previewErrorFixing"));
                 turn = {
                   kind: "preview_feedback",
                   conversationId,
@@ -1117,7 +1359,7 @@ export function useChat(deps: UseChatDeps) {
 
             if (call.name === ToolName.RunPreview) {
               deps.setPreviewStatus({ kind: "load", text: t("runningPreview") });
-              setAgentActivity(t("runningPreview"));
+              setAgentActivity(AgentActivitySource.Parent, t("runningPreview"));
               const preview = await deps.runPreview(projectId, signal);
               if (
                 signal.aborted
@@ -1142,7 +1384,10 @@ export function useChat(deps: UseChatDeps) {
                 kind: "load",
                 text: previewPassed ? t("previewOkSummarizing") : t("previewErrorFixing"),
               });
-              setAgentActivity(previewPassed ? t("previewOkSummarizing") : t("previewErrorFixing"));
+              setAgentActivity(
+                AgentActivitySource.Parent,
+                previewPassed ? t("previewOkSummarizing") : t("previewErrorFixing"),
+              );
               pendingFilesChanged = false;
               pendingShouldRunPreview = false;
               pendingFilesChangedProjectId = null;
@@ -1167,7 +1412,10 @@ export function useChat(deps: UseChatDeps) {
 
               if (fileResult.status === "error") {
                 deps.setPreviewStatus({ kind: "err", text: t("toolFailed", { name: fileResult.tool }) });
-                setAgentActivity(t("toolFailedHandling", { name: fileResult.tool }));
+                setAgentActivity(
+                  AgentActivitySource.Parent,
+                  t("toolFailedHandling", { name: fileResult.tool }),
+                );
               }
 
               const changedEvent = clientFileChangedEvent(fileResult, {
@@ -1223,7 +1471,10 @@ export function useChat(deps: UseChatDeps) {
             }
             if (gitResult.status === "error") {
               deps.setPreviewStatus({ kind: "err", text: t("toolFailed", { name: gitResult.tool }) });
-              setAgentActivity(t("toolFailedHandling", { name: gitResult.tool }));
+              setAgentActivity(
+                AgentActivitySource.Parent,
+                t("toolFailedHandling", { name: gitResult.tool }),
+              );
             }
             const submission = ClientToolResultSubmissionSchema.parse({
               projectId,
@@ -1283,7 +1534,9 @@ export function useChat(deps: UseChatDeps) {
     [
       appendFileChange,
       appendFileWriteStream,
+      applySubagentActivity,
       collapseFileWriteStreams,
+      disconnectSubagentObservation,
       deps,
       locale,
       markTimeline,
@@ -1414,6 +1667,7 @@ export function useChat(deps: UseChatDeps) {
       lastPromptRef.current = messageText;
       lastAttachmentsRef.current = attachments;
       timelineOrderRef.current = 0;
+      subagentProtocolRef.current.clear();
 
       const userId = crypto.randomUUID();
       const aiId = crypto.randomUUID();
@@ -1663,7 +1917,7 @@ export function useChat(deps: UseChatDeps) {
       activeUserRequest?.requestId ?? null,
     );
     stopRequestedRef.current = request;
-    setAgentActivity(t("stopping"));
+    setAgentActivity(AgentActivitySource.Parent, t("stopping"));
     if (identity) {
       void persistStopRequest(request, identity);
     } else if (activeUserRequest) {

@@ -2,6 +2,9 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 
 const PROJECT_ID = "772cc805-cf12-4b10-b19d-9b4241e68af7";
 const CONVERSATION_ID = "21a25592-5e6c-469d-b37f-1bca2ceadf83";
+const AGENT_RUN_ID = "d4bfaf7e-4ab5-49e2-a7af-402da07d21a7";
+const LIST_INVOCATION_ID = "56071dc3-3d80-4b0c-9dc1-3a8d3ebcb6eb";
+const WRITE_INVOCATION_ID = "45933ddd-5de1-47db-a81f-7b9d32114edb";
 const CREATED_AT = "2026-07-17T08:00:00.000Z";
 const README_CONTENT = "# E2E Browser Git\n";
 
@@ -40,11 +43,45 @@ function browserGitProject(id = PROJECT_ID) {
   };
 }
 
+function agentRun(
+  projectId: string,
+  requestId: string,
+  status: "waiting_client_tool" | "waiting_feedback" | "completed",
+  attempt: number,
+) {
+  return {
+    id: AGENT_RUN_ID,
+    projectId,
+    conversationId: CONVERSATION_ID,
+    requestId,
+    trigger: "user",
+    status,
+    attempt,
+    modelRounds: 1,
+    toolRounds: 1,
+    maxModelRounds: 24,
+    maxToolRounds: 24,
+    repository: {
+      projectId,
+      storageKind: "browser_git_v1",
+      revision: 0,
+    },
+    failure: null,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+    startedAt: CREATED_AT,
+    cancelRequestedAt: null,
+    completedAt: status === "completed" ? CREATED_AT : null,
+  };
+}
+
 async function installBrowserGitFlow(page: Page) {
   const toolResults: JsonRecord[] = [];
+  const invocationStarts: JsonRecord[] = [];
   const chatTurns: JsonRecord[] = [];
   let createdProjectId: string | null = null;
   let resumeCount = 0;
+  let requestId: string | null = null;
 
   await page.route("**/api/projects", async (route) => {
     const request = route.request();
@@ -70,9 +107,27 @@ async function installBrowserGitFlow(page: Page) {
     });
   });
 
-  await page.route(/\/api\/conversations\/[0-9a-f-]+\/tool-results$/, async (route) => {
+  await page.route(new RegExp(`/api/agent-runs/${AGENT_RUN_ID}/tool-invocations/[0-9a-f-]+/start$`), async (route) => {
+    expect(route.request().method()).toBe("POST");
+    invocationStarts.push(route.request().postDataJSON() as JsonRecord);
+    await route.fulfill({ status: 204, body: "" });
+  });
+
+  await page.route(new RegExp(`/api/agent-runs/${AGENT_RUN_ID}/tool-invocations/[0-9a-f-]+/result$`), async (route) => {
+    expect(route.request().method()).toBe("POST");
     toolResults.push(route.request().postDataJSON() as JsonRecord);
     await route.fulfill({ status: 204, body: "" });
+  });
+
+  await page.route(new RegExp(`/api/agent-runs/${AGENT_RUN_ID}/complete$`), async (route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().postDataJSON()).toEqual({});
+    expect(createdProjectId).not.toBeNull();
+    expect(requestId).not.toBeNull();
+    await route.fulfill({
+      status: 200,
+      json: agentRun(createdProjectId!, requestId!, "completed", 3),
+    });
   });
 
   await page.route("**/api/chat", async (route) => {
@@ -80,9 +135,12 @@ async function installBrowserGitFlow(page: Page) {
     chatTurns.push(body);
     if (body.kind === "user") {
       expect(body.projectId).toBe(createdProjectId);
+      requestId = String(body.requestId);
       await fulfillSse(route, [
         {
           type: "init",
+          agentRunId: AGENT_RUN_ID,
+          attempt: 1,
           conversationId: CONVERSATION_ID,
           repository: {
             projectId: createdProjectId,
@@ -90,22 +148,65 @@ async function installBrowserGitFlow(page: Page) {
             revision: 0,
           },
         },
-        { type: "tools_call", index: 0, id: "call-list", name: "list_files" },
+        {
+          type: "run_state",
+          agentRunId: AGENT_RUN_ID,
+          attempt: 1,
+          run: agentRun(createdProjectId!, requestId!, "waiting_client_tool", 1),
+        },
+        {
+          type: "tools_call",
+          agentRunId: AGENT_RUN_ID,
+          attempt: 1,
+          index: 0,
+          id: "call-list",
+          name: "list_files",
+        },
         {
           type: "client_tool_calls",
-          calls: [{ id: "call-list", name: "list_files", arguments: "{}" }],
+          agentRunId: AGENT_RUN_ID,
+          attempt: 1,
+          calls: [{
+            id: "call-list",
+            name: "list_files",
+            arguments: "{}",
+            invocationId: LIST_INVOCATION_ID,
+            agentRunId: AGENT_RUN_ID,
+            attempt: 1,
+          }],
         },
+        { type: "done", agentRunId: AGENT_RUN_ID, attempt: 1 },
       ]);
       return;
     }
 
-    expect(body).toEqual({ kind: "resume", conversationId: CONVERSATION_ID });
+    expect(body).toEqual({
+      kind: "resume",
+      conversationId: CONVERSATION_ID,
+      runId: AGENT_RUN_ID,
+      attempt: resumeCount + 1,
+    });
     if (resumeCount === 0) {
       resumeCount += 1;
       await fulfillSse(route, [
-        { type: "tools_call", index: 0, id: "call-write", name: "write_file" },
+        {
+          type: "run_state",
+          agentRunId: AGENT_RUN_ID,
+          attempt: 2,
+          run: agentRun(createdProjectId!, requestId!, "waiting_client_tool", 2),
+        },
+        {
+          type: "tools_call",
+          agentRunId: AGENT_RUN_ID,
+          attempt: 2,
+          index: 0,
+          id: "call-write",
+          name: "write_file",
+        },
         {
           type: "client_tool_calls",
+          agentRunId: AGENT_RUN_ID,
+          attempt: 2,
           calls: [{
             id: "call-write",
             name: "write_file",
@@ -114,19 +215,39 @@ async function installBrowserGitFlow(page: Page) {
               content: README_CONTENT,
               expectedRevision: 0,
             }),
+            invocationId: WRITE_INVOCATION_ID,
+            agentRunId: AGENT_RUN_ID,
+            attempt: 2,
           }],
         },
+        { type: "done", agentRunId: AGENT_RUN_ID, attempt: 2 },
       ]);
       return;
     }
 
     await fulfillSse(route, [
-      { type: "chat", delta: "Browser Git E2E completed" },
-      { type: "done" },
+      {
+        type: "chat",
+        agentRunId: AGENT_RUN_ID,
+        attempt: 3,
+        delta: "Browser Git E2E completed",
+      },
+      {
+        type: "run_state",
+        agentRunId: AGENT_RUN_ID,
+        attempt: 3,
+        run: agentRun(createdProjectId!, requestId!, "waiting_feedback", 3),
+      },
+      { type: "done", agentRunId: AGENT_RUN_ID, attempt: 3 },
     ]);
   });
 
-  return { toolResults, chatTurns, createdProjectId: () => createdProjectId };
+  return {
+    toolResults,
+    invocationStarts,
+    chatTurns,
+    createdProjectId: () => createdProjectId,
+  };
 }
 
 test("user can select Browser Git, let Agent write locally, and reopen after refresh", async ({ page }) => {
@@ -148,6 +269,7 @@ test("user can select Browser Git, let Agent write locally, and reopen after ref
   await expect(page.getByText("Browser Git E2E completed")).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('button[title="README.md"]')).toBeVisible();
   await expect.poll(() => flow.toolResults.length).toBe(2);
+  await expect.poll(() => flow.invocationStarts.length).toBe(2);
 
   const projectId = flow.createdProjectId();
   expect(projectId).toMatch(/^[0-9a-f-]{36}$/);
@@ -156,20 +278,28 @@ test("user can select Browser Git, let Agent write locally, and reopen after ref
       kind: "user",
       message: "创建 Browser Git E2E 项目说明",
       projectId,
+      requestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
     }),
-    { kind: "resume", conversationId: CONVERSATION_ID },
-    { kind: "resume", conversationId: CONVERSATION_ID },
+    { kind: "resume", conversationId: CONVERSATION_ID, runId: AGENT_RUN_ID, attempt: 1 },
+    { kind: "resume", conversationId: CONVERSATION_ID, runId: AGENT_RUN_ID, attempt: 2 },
   ]);
+  expect(flow.invocationStarts).toEqual([{ attempt: 1 }, { attempt: 2 }]);
   expect(flow.toolResults).toEqual([
     {
       projectId,
       toolCallId: "call-list",
+      invocationId: LIST_INVOCATION_ID,
+      agentRunId: AGENT_RUN_ID,
+      attempt: 1,
       tool: "list_files",
       result: { status: "ok", tool: "list_files", revision: 0, files: [] },
     },
     {
       projectId,
       toolCallId: "call-write",
+      invocationId: WRITE_INVOCATION_ID,
+      agentRunId: AGENT_RUN_ID,
+      attempt: 2,
       tool: "write_file",
       result: expect.objectContaining({
         status: "ok",

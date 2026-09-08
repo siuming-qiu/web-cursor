@@ -23,6 +23,18 @@ const MUTATION_TOOLS = new Set<string>([
   ToolName.GitUnstage,
   ToolName.GitCommit,
   ToolName.GenerateImage,
+  ToolName.SpawnAgent,
+  ToolName.SendMessage,
+  ToolName.FollowupTask,
+  ToolName.InterruptAgent,
+]);
+
+const SUBAGENT_CONTROL_TOOLS = new Set<string>([
+  ToolName.SpawnAgent,
+  ToolName.WaitAgent,
+  ToolName.SendMessage,
+  ToolName.FollowupTask,
+  ToolName.InterruptAgent,
 ]);
 
 function isKnownTool(name: string): name is ToolNameValue {
@@ -46,6 +58,9 @@ export function agentToolExecutionDomain(
   storageKind: ProjectStorageKindValue,
 ): AgentToolExecutionDomainValue {
   const knownTool = requireKnownTool(toolName);
+  if (SUBAGENT_CONTROL_TOOLS.has(knownTool)) {
+    return AgentToolExecutionDomain.Server;
+  }
   if (clientToolRunsInBrowser(knownTool, storageKind)) {
     return AgentToolExecutionDomain.Client;
   }
@@ -57,17 +72,25 @@ export function agentToolExecutionDomain(
 
 export function agentToolEffect(toolName: string): AgentToolEffectValue {
   const knownTool = requireKnownTool(toolName);
+  if (knownTool === ToolName.WaitAgent) return AgentToolEffect.Read;
   return MUTATION_TOOLS.has(knownTool)
     ? AgentToolEffect.Mutation
     : AgentToolEffect.Read;
 }
 
-export function serverDatabaseToolIsAtomicMutation(
+export function serverToolRequiresRunTransaction(
   toolName: string,
   storageKind: ProjectStorageKindValue,
 ): boolean {
+  const knownTool = requireKnownTool(toolName);
+  if (
+    SUBAGENT_CONTROL_TOOLS.has(knownTool)
+    && knownTool !== ToolName.WaitAgent
+  ) {
+    return true;
+  }
   if (storageKind !== ProjectStorageKind.Database) return false;
-  return toolName === ToolName.WriteFile
-    || toolName === ToolName.DeleteFile
-    || toolName === ToolName.RenameFile;
+  return knownTool === ToolName.WriteFile
+    || knownTool === ToolName.DeleteFile
+    || knownTool === ToolName.RenameFile;
 }
